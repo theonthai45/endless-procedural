@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Endless Survey</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&family=Libre+Franklin:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --card: #f3eddc;
+  --card-edge: #8c7a5e;
+  --ink: #2b241c;
+  --ink-soft: #6b5d4a;
+  --rule: #d6cbb3;
+  --accent: #b23a2a;
+  --accent-ink: #fbf3ea;
+  --on-ink: #f6f0e2;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --card: #1f1c18; --card-edge: #6a5d49; --ink: #ece4d2; --ink-soft: #b5a88f; --rule: #3e372d; --on-ink: #1f1c18;
+  }
+}
+:root[data-theme="dark"] { --card: #1f1c18; --card-edge: #6a5d49; --ink: #ece4d2; --ink-soft: #b5a88f; --rule: #3e372d; --on-ink: #1f1c18; }
+*, *::before, *::after { box-sizing: inherit; }
+html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
+body {
+  position: fixed; inset: 0; height: 100%; margin: 0; overflow: hidden;
+  overscroll-behavior: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%;
+  font-family: "Libre Franklin", "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.45; color: var(--ink);
+  background: #efe8d5;
+  --hud-ink: #2f2820; --hud-bg: rgba(239, 232, 213, .86); --hud-edge: rgba(47, 40, 32, .55);
+}
+body[data-map="relief"] { background: #ece9e1; --hud-bg: rgba(236, 233, 225, .86); }
+body[data-map="ink"] { background: #f5f2ea; --hud-ink: #1d1d1d; --hud-bg: rgba(245, 242, 234, .9); --hud-edge: rgba(29,29,29,.6); }
+body[data-map="blueprint"] { background: #163f63; --hud-ink: #e8f3ff; --hud-bg: rgba(18, 52, 84, .82); --hud-edge: rgba(216, 235, 255, .5); }
+body[data-map="nocturne"] { background: #0e1117; --hud-ink: #e7ecf7; --hud-bg: rgba(14, 17, 23, .82); --hud-edge: rgba(142, 154, 184, .5); }
+
+/* ---------- the map ---------- */
+#stage { position: fixed; left: 0; right: 0; top: 0; height: 100vh; height: 100lvh; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+#strip { position: absolute; left: 0; top: 0; will-change: transform; }
+#inner { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.tile { position: absolute; top: 0; display: block; transition: opacity .6s ease; }
+#clouds { position: absolute; inset: 0; overflow: hidden; pointer-events: none; transition: opacity 1s; mix-blend-mode: multiply; opacity: .8; }
+#clouds.off { opacity: 0; }
+body[data-map="blueprint"] #clouds, body[data-map="nocturne"] #clouds { mix-blend-mode: normal; opacity: .55; }
+body[data-map="blueprint"] #clouds.off, body[data-map="nocturne"] #clouds.off { opacity: 0; }
+#cloudLayer { position: absolute; top: 0; bottom: 0; left: 0; right: -768px; background-repeat: repeat; will-change: transform; animation: clouds 70s linear infinite; }
+@keyframes clouds { from { transform: translate3d(0,0,0); } to { transform: translate3d(-768px,0,0); } }
+@media (prefers-reduced-motion: reduce) { #cloudLayer { animation: none; } }
+
+#loading {
+  position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none;
+  font-family: "IM Fell English", Georgia, serif; font-style: italic; font-size: clamp(22px, 4vw, 34px);
+  color: var(--hud-ink); transition: opacity 1s ease;
+}
+#loading.done { opacity: 0; }
+
+/* ---------- map furniture ---------- */
+.hud { position: fixed; z-index: 5; color: var(--hud-ink); pointer-events: none; transition: opacity .4s; }
+#cartouche {
+  top: calc(30px + env(safe-area-inset-top, 0px)); left: calc(18px + env(safe-area-inset-left, 0px));
+  background: var(--hud-bg); padding: 9px 14px 10px; max-width: min(320px, 70vw);
+  border: 1px solid var(--hud-edge); outline: 1px solid var(--hud-edge); outline-offset: 3px;
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+#hudRegion { display: block; font-family: "IM Fell English", Georgia, serif; font-size: 19px; line-height: 1.15; }
+#hudMeta { display: block; margin-top: 3px; font-size: 11.5px; letter-spacing: .02em; opacity: .85; font-variant-numeric: tabular-nums; }
+#legend {
+  bottom: calc(30px + env(safe-area-inset-bottom, 0px)); left: calc(18px + env(safe-area-inset-left, 0px));
+  background: var(--hud-bg); padding: 8px 12px 9px; border: 1px solid var(--hud-edge);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  font-size: 11.5px; font-variant-numeric: tabular-nums;
+}
+.bar { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 4px; }
+#scaleBar {
+  height: 6px; width: 160px; border: 1px solid var(--hud-ink);
+  background: linear-gradient(90deg, var(--hud-ink) 0 25%, transparent 25% 50%, var(--hud-ink) 50% 75%, transparent 75%);
+}
+body.bare .hud, body.bare #menu { opacity: 0; }
+body.bare #menu { pointer-events: none; }
+body.bare #panel { display: none; }
+
+#menu {
+  position: fixed; z-index: 10; right: calc(18px + env(safe-area-inset-right, 0px)); bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+  width: 56px; height: 56px; border-radius: 50%; padding: 0; cursor: pointer;
+  background: var(--hud-bg); color: var(--hud-ink); border: 1px solid var(--hud-edge);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  display: grid; place-items: center; transition: transform .25s ease, opacity .4s;
+}
+#menu svg { width: 38px; height: 38px; }
+#menu[aria-expanded="true"] { transform: rotate(45deg); }
+#menu:focus-visible { outline: 2px solid var(--hud-ink); outline-offset: 3px; }
+
+/* ---------- the legend card (controls) ---------- */
+#panel {
+  position: fixed; z-index: 9;
+  right: calc(18px + env(safe-area-inset-right, 0px)); bottom: calc(98px + env(safe-area-inset-bottom, 0px));
+  width: 320px; max-height: calc(100% - 140px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  overflow-y: auto; overscroll-behavior: contain;
+  background: var(--card); color: var(--ink);
+  border: 1px solid var(--card-edge); outline: 1px solid var(--card-edge); outline-offset: -5px;
+  box-shadow: 0 18px 44px rgba(20, 15, 8, .28);
+  padding: 18px 20px 14px;
+}
+#panel[hidden] { display: none; }
+.head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 4px; }
+.head h1 { margin: 0; flex: 1; font-family: "IM Fell English", Georgia, serif; font-weight: 400; font-size: 26px; line-height: 1.05; }
+.head p { margin: 4px 0 0; font-family: "IM Fell English", Georgia, serif; font-style: italic; font-size: 15px; color: var(--ink-soft); }
+#closePanel { border: 0; background: none; color: var(--ink-soft); font-size: 22px; line-height: 1; padding: 2px 6px; cursor: pointer; border-radius: 3px; }
+#closePanel:hover { color: var(--ink); }
+#closePanel:focus-visible { outline: 2px solid var(--accent); }
+section { padding: 12px 0 4px; border-top: 1px solid var(--rule); }
+.head + section { border-top: 0; }
+h2 { margin: 0 0 8px; font-family: "IM Fell English", Georgia, serif; font-weight: 400; font-style: italic; font-size: 18px; }
+.note { margin: -3px 0 9px; font-size: 12.5px; color: var(--ink-soft); }
+.row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 10px; margin: 0 0 8px; }
+.row label { font-size: 13.5px; }
+.row output { font-size: 12.5px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.row input[type=range] { grid-column: 1 / -1; }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; margin: 0; background: none; cursor: pointer; }
+input[type=range]::-webkit-slider-runnable-track { height: 2px; background: var(--ink-soft); }
+input[type=range]::-moz-range-track { height: 2px; background: var(--ink-soft); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -5px; transform: rotate(45deg); background: var(--accent); border: 2px solid var(--card); box-shadow: 0 0 0 1px var(--accent); }
+input[type=range]::-moz-range-thumb { width: 9px; height: 9px; transform: rotate(45deg); background: var(--accent); border: 2px solid var(--card); border-radius: 0; box-shadow: 0 0 0 1px var(--accent); }
+input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.checks { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 12px; margin: 0 0 10px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+.check.wide { grid-column: 1 / -1; }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; border: 0; padding: 0; min-width: 0; }
+.choices legend { font-size: 13.5px; padding: 0; margin-bottom: 6px; }
+.choices label { position: relative; }
+.choices input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.choices span { display: inline-block; padding: 4px 11px 5px; font-size: 13px; border: 1px solid var(--card-edge); color: var(--ink); }
+.choices input:checked + span { background: var(--ink); color: var(--on-ink); border-color: var(--ink); font-weight: 500; }
+.choices input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.swatch { display: inline-block; width: 9px; height: 9px; margin-right: 6px; vertical-align: 0; border: 1px solid rgba(0,0,0,.25); }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+button.act { font: inherit; font-size: 13.5px; padding: 6px 14px 7px; cursor: pointer; border: 1px solid var(--ink); background: transparent; color: var(--ink); }
+button.act.primary { background: var(--ink); color: var(--on-ink); font-weight: 500; }
+button.act.primary[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+@media (hover: hover) {
+  button.act:hover { background: var(--rule); color: var(--ink); }
+  button.act.primary:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .choices input:not(:checked) + span:hover { background: var(--rule); }
+}
+button.act:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#status { font-size: 12.5px; color: var(--ink-soft); margin: 0 0 6px; min-height: 1.4em; }
+#seedForm { display: flex; gap: 8px; margin: 0 0 8px; }
+#seed { flex: 1; min-width: 0; font: inherit; font-size: 13.5px; padding: 5px 8px; background: transparent; color: var(--ink); border: 1px solid var(--card-edge); }
+#seed:focus-visible { outline: 2px solid var(--accent); }
+.foot { margin: 6px 0 0; padding-top: 10px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--ink-soft); }
+kbd { font-family: inherit; font-size: 11.5px; border: 1px solid var(--card-edge); padding: 0 4px; }
+
+@media (pointer: coarse) {
+  input[type=range] { height: 38px; }
+  input[type=range]::-webkit-slider-thumb { width: 20px; height: 20px; margin-top: -9px; }
+  input[type=range]::-moz-range-thumb { width: 16px; height: 16px; }
+  .check { min-height: 34px; }
+  .check input { width: 19px; height: 19px; }
+  .choices span { padding: 8px 13px 9px; font-size: 14px; }
+  button.act { padding: 10px 16px 11px; }
+  #seed { font-size: 16px; padding: 8px 10px; }
+  #closePanel { font-size: 28px; padding: 4px 10px; }
+  .keys { display: none; }
+}
+@media (pointer: fine) { .touchnote { display: none; } }
+@media (max-width: 560px) {
+  #panel { left: calc(10px + env(safe-area-inset-left, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); width: auto; max-height: calc(70% - env(safe-area-inset-bottom, 0px)); padding: 16px 16px 12px; }
+  #cartouche { top: calc(26px + env(safe-area-inset-top, 0px)); left: calc(10px + env(safe-area-inset-left, 0px)); }
+  #hudRegion { font-size: 17px; }
+  #legend { left: calc(10px + env(safe-area-inset-left, 0px)); bottom: calc(30px + env(safe-area-inset-bottom, 0px)); }
+  #menu { right: calc(10px + env(safe-area-inset-right, 0px)); }
+}
+@media (max-height: 480px) and (orientation: landscape) {
+  #panel { bottom: calc(10px + env(safe-area-inset-bottom, 0px)); right: calc(86px + env(safe-area-inset-right, 0px)); max-height: calc(100% - 20px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+}
+</style>
+
+<style>
+.home-link{position:fixed;z-index:2147483000;top:calc(14px + env(safe-area-inset-top,0px));right:calc(14px + env(safe-area-inset-right,0px));
+display:inline-flex;align-items:center;gap:6px;padding:7px 13px 8px 11px;border-radius:999px;font:500 13px/1 system-ui,-apple-system,"Segoe UI",sans-serif;
+color:#fff;background:rgba(20,18,16,.55);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);text-decoration:none;
+box-shadow:0 0 0 1px rgba(255,255,255,.18);transition:opacity .4s,background .2s}
+.home-link:hover{background:rgba(20,18,16,.78)}
+.home-link:focus-visible{outline:2px solid #fff;outline-offset:2px}
+body.bare .home-link{opacity:0;pointer-events:none}
+</style>
+</head>
+<body>
+<a class="home-link" href="../index.html" aria-label="Back to all pieces"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>All pieces</a>
+
+<div id="stage" role="img" aria-label="An endlessly scrolling, procedurally generated topographic map">
+  <div id="strip"><div id="inner"></div></div>
+  <div id="clouds"><div id="cloudLayer"></div></div>
+</div>
+
+<div id="cartouche" class="hud" aria-live="polite"><span id="hudRegion">&nbsp;</span><span id="hudMeta"><span id="hudSheet">Sheet 1</span>, scale 1:50,000</span></div>
+<div id="legend" class="hud"><div class="bar"><div id="scaleBar"></div><span>1 km</span></div><span id="hudCoord">&nbsp;</span></div>
+<div id="loading">Surveying the first sheet…</div>
+
+<button id="menu" aria-controls="panel" aria-expanded="false" title="Map controls" aria-label="Map controls">
+  <svg viewBox="0 0 40 40" aria-hidden="true">
+    <circle cx="20" cy="20" r="15.5" fill="none" stroke="currentColor" stroke-width="1"/>
+    <circle cx="20" cy="20" r="12.5" fill="none" stroke="currentColor" stroke-width=".6" stroke-dasharray="1 2.27"/>
+    <path d="M20 4 L23 20 L20 36 L17 20 Z" fill="currentColor" opacity=".9"/>
+    <path d="M4 20 L20 17 L36 20 L20 23 Z" fill="currentColor" opacity=".45"/>
+    <path d="M20 4 L23 20 L20 20 Z" fill="#b23a2a"/>
+  </svg>
+</button>
+
+<aside id="panel" hidden aria-label="Map controls">
+  <div class="head">
+    <div style="flex:1"><h1>The endless survey</h1><p>A map that keeps drawing the land ahead.</p></div>
+    <button id="closePanel" aria-label="Close controls">×</button>
+  </div>
+
+  <section>
+    <h2>Motion</h2>
+    <div class="btns"><button class="act primary" id="play" aria-pressed="false">Pause</button><button class="act" id="hideAll">Hide controls</button></div>
+    <p class="note touchnote">Tap the map to bring the controls back.</p>
+    <div class="row"><label for="speed">Scroll speed</label><output id="speedOut"></output>
+      <input type="range" id="speed" min="5" max="250" step="5" value="35"></div>
+    <p id="status" aria-live="polite"></p>
+  </section>
+
+  <section>
+    <h2>Map style</h2>
+    <fieldset class="choices">
+      <legend>Edition</legend>
+      <label><input type="radio" name="theme" value="survey" checked><span><i class="swatch" style="background:#d8b48a"></i>Survey</span></label>
+      <label><input type="radio" name="theme" value="relief"><span><i class="swatch" style="background:#b9cba0"></i>Relief</span></label>
+      <label><input type="radio" name="theme" value="blueprint"><span><i class="swatch" style="background:#163f63"></i>Blueprint</span></label>
+      <label><input type="radio" name="theme" value="nocturne"><span><i class="swatch" style="background:linear-gradient(90deg,#34c7b5,#d16bff,#ffbf6b)"></i>Nocturne</span></label>
+      <label><input type="radio" name="theme" value="ink"><span><i class="swatch" style="background:#f5f2ea"></i>Ink</span></label>
+    </fieldset>
+    <fieldset class="choices">
+      <legend>Contour spacing</legend>
+      <label><input type="radio" name="interval" value="0.012"><span>Fine</span></label>
+      <label><input type="radio" name="interval" value="0.02" checked><span>Standard</span></label>
+      <label><input type="radio" name="interval" value="0.034"><span>Wide</span></label>
+    </fieldset>
+    <div class="row"><label for="shade">Hill shading</label><output id="shadeOut"></output>
+      <input type="range" id="shade" min="0" max="100" step="5" value="70"></div>
+    <div class="checks"><label class="check wide"><input type="checkbox" id="wander"> Change edition every 2 minutes</label></div>
+  </section>
+
+  <section>
+    <h2>Layers</h2>
+    <div class="checks">
+      <label class="check"><input type="checkbox" id="rivers" checked> Rivers</label>
+      <label class="check"><input type="checkbox" id="roads" checked> Roads</label>
+      <label class="check"><input type="checkbox" id="towns" checked> Place names</label>
+      <label class="check"><input type="checkbox" id="peaks" checked> Summits</label>
+      <label class="check"><input type="checkbox" id="grid" checked> Grid</label>
+      <label class="check"><input type="checkbox" id="cloudsOn" checked> Cloud shadows</label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Terrain</h2>
+    <p class="note">Changes blend in past the right edge, so the land never breaks.</p>
+    <div class="row"><label for="sea">Sea level</label><output id="seaOut"></output>
+      <input type="range" id="sea" min="-100" max="100" step="5" value="0"></div>
+    <div class="row"><label for="rug">Ruggedness</label><output id="rugOut"></output>
+      <input type="range" id="rug" min="30" max="200" step="5" value="100"></div>
+    <div class="row"><label for="size">Size of landforms</label><output id="sizeOut"></output>
+      <input type="range" id="size" min="50" max="200" step="5" value="100"></div>
+  </section>
+
+  <section>
+    <h2>New land</h2>
+    <div class="btns"><button class="act" id="newLand">Survey new land</button></div>
+    <form id="seedForm"><input id="seed" type="text" aria-label="Seed" autocomplete="off"><button class="act" type="submit">Use seed</button></form>
+    <p class="note">New land takes over from the right edge.</p>
+  </section>
+
+  <p class="foot"><span class="keys"><kbd>Space</kbd> pauses, <kbd>H</kbd> hides the controls. </span>Every coastline, summit and place name is generated as you travel.</p>
+</aside>
+
+<script>
+/* ===== Endless survey map: core (environment-agnostic) ===== */
+var WH = 1000;      // world height (units)
+var GRID = 3;       // sampling cell (units)
+
+/* ---------- seeded simplex noise ---------- */
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    var t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function hashStr(s) {
+  var h = 2166136261;
+  for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+var G2 = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
+function makeNoise(seed) {
+  var rnd = mulberry32(seed), p = new Uint8Array(256), i;
+  for (i = 0; i < 256; i++) p[i] = i;
+  for (i = 255; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)), t = p[i]; p[i] = p[j]; p[j] = t; }
+  var perm = new Uint8Array(512), gx = new Float32Array(512), gy = new Float32Array(512);
+  for (i = 0; i < 512; i++) { perm[i] = p[i & 255]; var g = G2[perm[i] & 7]; gx[i] = g[0]; gy[i] = g[1]; }
+  var F2 = 0.5 * (Math.sqrt(3) - 1), G = (3 - Math.sqrt(3)) / 6;
+  function s2(xin, yin) {
+    var s = (xin + yin) * F2, i = Math.floor(xin + s), j = Math.floor(yin + s);
+    var t = (i + j) * G, x0 = xin - (i - t), y0 = yin - (j - t);
+    var i1 = x0 > y0 ? 1 : 0, j1 = 1 - i1;
+    var x1 = x0 - i1 + G, y1 = y0 - j1 + G, x2 = x0 - 1 + 2 * G, y2 = y0 - 1 + 2 * G;
+    var ii = i & 255, jj = j & 255, n = 0, tt, gi;
+    tt = 0.5 - x0 * x0 - y0 * y0;
+    if (tt > 0) { gi = ii + perm[jj]; tt *= tt; n += tt * tt * (gx[gi] * x0 + gy[gi] * y0); }
+    tt = 0.5 - x1 * x1 - y1 * y1;
+    if (tt > 0) { gi = ii + i1 + perm[jj + j1]; tt *= tt; n += tt * tt * (gx[gi] * x1 + gy[gi] * y1); }
+    tt = 0.5 - x2 * x2 - y2 * y2;
+    if (tt > 0) { gi = ii + 1 + perm[jj + 1]; tt *= tt; n += tt * tt * (gx[gi] * x2 + gy[gi] * y2); }
+    return 70 * n;
+  }
+  function fbm(x, y, oct) {
+    var a = 0.5, f = 1, s = 0, n = 0;
+    for (var o = 0; o < oct; o++) { s += a * s2(x * f, y * f); n += a; a *= 0.5; f *= 2.03; }
+    return s / n;
+  }
+  function ridged(x, y, oct) {
+    var a = 0.5, f = 1, s = 0, n = 0, w = 1;
+    for (var o = 0; o < oct; o++) {
+      var r = 1 - Math.abs(s2(x * f, y * f)); r *= r; r *= w; w = Math.min(1, r * 1.6);
+      s += a * r; n += a; a *= 0.5; f *= 2.1;
+    }
+    return s / n;
+  }
+  return { s2: s2, fbm: fbm, ridged: ridged };
+}
+var NOISE = {};
+function noiseFor(seed) { return NOISE[seed] || (NOISE[seed] = makeNoise(seed)); }
+
+/* ---------- terrain parameters along the journey ---------- */
+// keyframes: user settings that take effect at a world x, blending over BLEND units
+var BLEND = 900;
+var KF = [{ x: -1e9, seed: 1, sea: 0, rug: 1, size: 1 }];
+function addKeyframe(x, patch) {
+  var last = KF[KF.length - 1], same = true;
+  for (var q in patch) if (last[q] !== patch[q]) same = false;
+  if (same) return;
+  var k = { x: x, seed: last.seed, sea: last.sea, rug: last.rug, size: last.size };
+  for (var p in patch) k[p] = patch[p];
+  // anything at or after x is superseded
+  while (KF.length > 1 && KF[KF.length - 1].x >= x) KF.pop();
+  if (KF[KF.length - 1].x > x - BLEND) {
+    // starting mid-blend: freeze the current blended look as the new start
+    x = Math.max(x, KF[KF.length - 1].x + BLEND);
+    k.x = x;
+  }
+  KF.push(k);
+}
+function pruneKeyframes(xmin) {
+  while (KF.length > 2 && KF[1].x + BLEND < xmin) KF.shift();
+}
+// for a column: which settings apply and how far into the blend
+function columnParams(x) {
+  var i = KF.length - 1;
+  while (i > 0 && KF[i].x > x) i--;
+  var B = KF[i], A = i > 0 ? KF[i - 1] : B;
+  var t = i > 0 ? (x - B.x) / BLEND : 1;
+  if (t >= 1) return { A: B, B: B, t: 1 };
+  t = t * t * (3 - 2 * t);
+  return { A: A, B: B, t: t };
+}
+
+/* ---------- the land itself ---------- */
+// regional character drifts on its own so the journey keeps changing
+function region(N, x) {
+  var a = N.s2(x * 0.00021, 3.3), b = N.s2(x * 0.00017, 8.1), c = N.s2(x * 0.0003, 13.7);
+  return {
+    seaOff: a * 0.16,                         // archipelagos vs continents
+    rug: Math.max(0, Math.min(1, 0.5 + b * 0.85)), // plains vs high fells
+    lakes: Math.max(0, c)                     // lake districts
+  };
+}
+function sampleOne(K, x, y, out) {
+  var N = noiseFor(K.seed), R = region(N, x);
+  var f = 0.0013 / K.size;
+  var wx = N.fbm(x * f * 0.5 + 31.7, y * f * 0.5 - 12.1, 3) * 85;
+  var wy = N.fbm(x * f * 0.5 - 51.3, y * f * 0.5 + 77.9, 3) * 85;
+  var X = (x + wx) * f, Y = (y + wy) * f;
+  var base = N.fbm(X, Y, 5) * 0.5 + 0.5;
+  var rug = K.rug * (0.25 + R.rug * 0.95);
+  var rid = N.ridged(X * 1.6 + 9.1, Y * 1.6 - 3.7, 4);
+  var h = base * 0.78 + rid * rid * rug * 0.62 - 0.12 * rug + 0.08;
+  // gentle bowls for lake districts
+  h -= R.lakes * Math.max(0, N.s2(X * 3.1 + 40, Y * 3.1)) * 0.18;
+  var sea = 0.36 + K.sea + R.seaOff;
+  // rivers: zero-line of a warped field, carved into the land
+  var rv = N.s2((x + wx * 0.6) * f * 1.25 + 200, (y + wy * 0.6) * f * 1.25 - 90);
+  var ar = Math.abs(rv);
+  if (ar < 0.1) {
+    var w = Math.max(0, Math.min(1, (h - sea) / 0.06));
+    var q = 1 - ar / 0.1;
+    h -= q * q * 0.055 * w;
+  }
+  out.h = h; out.sea = sea; out.rv = rv;
+  out.rd = N.s2(x * f * 1.9 - 700, y * f * 1.9 + 410);
+  out.rug = rug;
+  return out;
+}
+var _sa = {}, _sb = {};
+function sample(cp, x, y, out) {
+  if (cp.t >= 1 || cp.A === cp.B) return sampleOne(cp.B, x, y, out);
+  sampleOne(cp.A, x, y, _sa); sampleOne(cp.B, x, y, _sb);
+  var t = cp.t, u = 1 - t;
+  out.h = _sa.h * u + _sb.h * t; out.sea = _sa.sea * u + _sb.sea * t;
+  out.rv = _sa.rv * u + _sb.rv * t; out.rd = _sa.rd * u + _sb.rd * t; out.rug = _sa.rug * u + _sb.rug * t;
+  return out;
+}
+function sampleAt(x, y, out) { return sample(columnParams(x), x, y, out || {}); }
+function seedAt(x) { var cp = columnParams(x); return cp.t >= 0.5 ? cp.B.seed : cp.A.seed; }
+
+/* ---------- names ---------- */
+function hash3(a, b, c) {
+  var h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263) ^ Math.imul(c | 0, 2147483647);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+var SYL_A = ["Ash","Bel","Brack","Cor","Dun","Elder","Fen","Glen","Hal","Iver","Kel","Lin","Mor","Nether","Oak","Pen","Rav","Stan","Thorn","Ul","Ver","Wex","Yar","Hollin","Brin","Calder","Wren","Marl","Esk","Tarn","Gry","Sel","Ald","Rook","Fal","Kes"];
+var SYL_B = ["ford","bury","wick","ton","mere","dale","holm","stead","by","more","haven","field","gate","moor","combe","ley","thwaite","burn","stow","well","cross","hope","ness","wold"];
+function placeName(r1, r2) { return SYL_A[Math.floor(r1 * SYL_A.length)] + SYL_B[Math.floor(r2 * SYL_B.length)]; }
+
+/* ---------- themes ---------- */
+function hex(c) { return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)]; }
+function rampLUT(stops) {
+  var lut = new Uint8ClampedArray(256 * 3), cs = stops.map(function(s) { return [s[0], hex(s[1])]; });
+  for (var i = 0; i < 256; i++) {
+    var t = i / 255, k = 0;
+    while (k < cs.length - 2 && t > cs[k + 1][0]) k++;
+    var a = cs[k], b = cs[k + 1], u = Math.max(0, Math.min(1, (t - a[0]) / (b[0] - a[0])));
+    for (var c = 0; c < 3; c++) lut[i * 3 + c] = a[1][c] + (b[1][c] - a[1][c]) * u;
+  }
+  return lut;
+}
+var THEMES = {
+  survey: {
+    paper: "#efe8d5",
+    land: [[0, "#cbd9ae"], [0.18, "#dfe2b4"], [0.38, "#e9d9a8"], [0.6, "#d8b48a"], [0.82, "#c49a7c"], [1, "#f2eee8"]],
+    water: [[0, "#cfe3e6"], [0.35, "#a9cdd8"], [1, "#7fadc4"]],
+    shadow: "#4b4a6a", shadeMix: 0.15,
+    contour: "rgba(128,82,50,.62)", index: "rgba(110,66,38,.9)", depth: "rgba(60,120,155,.35)",
+    shore: "rgba(40,98,132,.95)", waterline: "rgba(52,112,148,.5)", river: "#3d7ea8",
+    road: "#b23a2a", track: "rgba(120,60,40,.85)", grid: "rgba(70,55,40,.22)", frame: "#3b3127",
+    text: "#2f2820", halo: "rgba(239,232,213,.85)", waterText: "#2b6a8c", regionText: "rgba(70,52,36,.55)",
+    peak: "#4a3326", town: "#2f2820", glow: false
+  },
+  relief: {
+    paper: "#ece9e1",
+    land: [[0, "#b9cba0"], [0.2, "#ccd3a5"], [0.45, "#dacfa6"], [0.7, "#cdb79a"], [0.9, "#e3ddd7"], [1, "#fbfaf8"]],
+    water: [[0, "#cddfe4"], [1, "#93b8cc"]],
+    shadow: "#3d4a78", shadeMix: 0.32,
+    contour: "rgba(110,90,70,.32)", index: "rgba(100,78,58,.55)", depth: "rgba(70,120,150,.25)",
+    shore: "rgba(50,100,135,.85)", waterline: "rgba(60,110,140,.35)", river: "#4b86aa",
+    road: "#a8402f", track: "rgba(110,70,50,.7)", grid: "rgba(60,60,70,.18)", frame: "#3a3833",
+    text: "#2c2a26", halo: "rgba(236,233,225,.85)", waterText: "#2f6688", regionText: "rgba(60,55,50,.5)",
+    peak: "#3e3530", town: "#2c2a26", glow: false
+  },
+  blueprint: {
+    paper: "#163f63",
+    land: [[0, "#1a4a72"], [1, "#2a6292"]],
+    water: [[0, "#123757"], [1, "#0d2b47"]],
+    shadow: "#061a2e", shadeMix: 0.35,
+    contour: "rgba(205,228,255,.45)", index: "rgba(225,240,255,.85)", depth: "rgba(150,200,255,.2)",
+    shore: "rgba(240,248,255,.95)", waterline: "rgba(190,220,255,.4)", river: "#bfe0ff",
+    road: "#ffd27a", track: "rgba(255,220,150,.6)", grid: "rgba(200,225,255,.16)", frame: "#d8ebff",
+    text: "#e8f3ff", halo: "rgba(22,63,99,.8)", waterText: "#a9d3ff", regionText: "rgba(220,238,255,.45)",
+    peak: "#e8f3ff", town: "#e8f3ff", glow: false
+  },
+  nocturne: {
+    paper: "#0e1117",
+    land: [[0, "#10151d"], [1, "#1c2230"]],
+    water: [[0, "#0a0f17"], [1, "#05080d"]],
+    shadow: "#000000", shadeMix: 0.4,
+    contour: "ramp", index: "ramp", depth: "rgba(70,150,190,.22)",
+    shore: "rgba(110,225,235,.95)", waterline: "rgba(90,200,220,.35)", river: "#5fd4e6",
+    road: "#ff8f6b", track: "rgba(255,160,120,.55)", grid: "rgba(150,170,210,.1)", frame: "#8e9ab8",
+    text: "#e7ecf7", halo: "rgba(14,17,23,.85)", waterText: "#7fd8e8", regionText: "rgba(200,210,240,.35)",
+    peak: "#ffd28a", town: "#e7ecf7", glow: true,
+    ramp: [[0, "#34c7b5"], [0.35, "#6b8cff"], [0.65, "#d16bff"], [1, "#ffbf6b"]]
+  },
+  ink: {
+    paper: "#f5f2ea",
+    land: [[0, "#f5f2ea"], [1, "#f5f2ea"]],
+    water: [[0, "#e9eef0"], [1, "#dfe7ea"]],
+    shadow: "#2a2a2a", shadeMix: 0.0,
+    contour: "rgba(30,30,30,.55)", index: "rgba(20,20,20,.9)", depth: "rgba(30,30,30,.18)",
+    shore: "rgba(20,20,20,.95)", waterline: "rgba(20,20,20,.35)", river: "#1d1d1d",
+    road: "#1d1d1d", track: "rgba(30,30,30,.7)", grid: "rgba(20,20,20,.15)", frame: "#1d1d1d",
+    text: "#1d1d1d", halo: "rgba(245,242,234,.9)", waterText: "#1d1d1d", regionText: "rgba(20,20,20,.4)",
+    peak: "#1d1d1d", town: "#1d1d1d", glow: false
+  }
+};
+function prepTheme(t) {
+  if (t._land) return t;
+  t._land = rampLUT(t.land); t._water = rampLUT(t.water); t._shadow = hex(t.shadow);
+  if (t.ramp) {
+    var l = rampLUT(t.ramp); t._ramp = [];
+    for (var i = 0; i < 8; i++) { var k = Math.round(i / 7 * 255) * 3; t._ramp.push("rgb(" + l[k] + "," + l[k + 1] + "," + l[k + 2] + ")"); }
+  }
+  return t;
+}
+
+/* ---------- style (visual options) ---------- */
+var STYLE = {
+  theme: "survey", shade: 70, interval: 0.02,
+  rivers: true, roads: true, towns: true, peaks: true, grid: true,
+  fontSerif: "Georgia, serif", fontSerifSC: "Georgia, serif", fontSans: "Helvetica, Arial, sans-serif"
+};
+
+/* ---------- tile renderer: a generator so the work can be sliced ---------- */
+// env: { makeCanvas(w,h) }
+function* renderTile(env, ctx, x0, x1, k, scale) {
+  var T = prepTheme(THEMES[STYLE.theme]);
+  var c = GRID;
+  var gx0 = Math.floor(x0 / c) * c - 2 * c, gy0 = -2 * c;
+  var nx = Math.ceil((x1 - gx0) / c) + 3, ny = Math.ceil((WH - gy0) / c) + 3;
+  var H = new Float32Array(nx * ny), SEA = new Float32Array(nx * ny), RV = new Float32Array(nx * ny), RD = new Float32Array(nx * ny);
+  var cps = new Array(nx), s = {};
+  for (var i = 0; i < nx; i++) cps[i] = columnParams(gx0 + i * c);
+  for (var j = 0; j < ny; j++) {
+    var y = gy0 + j * c;
+    for (var i = 0; i < nx; i++) {
+      sample(cps[i], gx0 + i * c, y, s);
+      var idx = j * nx + i;
+      H[idx] = s.h; SEA[idx] = s.sea; RV[idx] = s.rv; RD[idx] = s.rd;
+    }
+    if ((j & 15) === 15) yield;
+  }
+
+  // --- tint + hillshade image ---
+  var img = env.makeCanvas(nx, ny), ic = img.getContext("2d"), id = ic.createImageData(nx, ny), d = id.data;
+  var st = STYLE.shade / 100, Z = 190, L0 = -0.55, L1 = -0.62, L2 = 0.56;
+  var sh = T._shadow, mix = T.shadeMix;
+  for (var j = 0; j < ny; j++) {
+    var j0 = Math.max(0, j - 1), j1 = Math.min(ny - 1, j + 1);
+    for (var i = 0; i < nx; i++) {
+      var idx = j * nx + i, h = H[idx], sea = SEA[idx], p = idx * 4, r, g, b, lut, li;
+      if (h < sea) {
+        li = Math.min(255, Math.max(0, ((sea - h) / 0.28) * 255)) | 0;
+        lut = T._water; r = lut[li * 3]; g = lut[li * 3 + 1]; b = lut[li * 3 + 2];
+      } else {
+        li = Math.min(255, Math.max(0, ((h - sea) / 0.46) * 255)) | 0;
+        lut = T._land; r = lut[li * 3]; g = lut[li * 3 + 1]; b = lut[li * 3 + 2];
+        var i0 = Math.max(0, i - 1), i1 = Math.min(nx - 1, i + 1);
+        var dx = (Math.max(H[j * nx + i1], sea) - Math.max(H[j * nx + i0], sea)) * Z / ((i1 - i0) * c);
+        var dy = (Math.max(H[j1 * nx + i], sea) - Math.max(H[j0 * nx + i], sea)) * Z / ((j1 - j0) * c);
+        var inv = 1 / Math.sqrt(dx * dx + dy * dy + 1);
+        var lam = Math.max(0, (-dx * L0 - dy * L1 + L2) * inv) / 0.84; // 1 = flat
+        var f = 1 + st * (lam - 1) * 0.85;
+        var m = Math.max(0, 1 - lam) * st * mix;
+        r = r * f * (1 - m) + sh[0] * m; g = g * f * (1 - m) + sh[1] * m; b = b * f * (1 - m) + sh[2] * m;
+      }
+      d[p] = r; d[p + 1] = g; d[p + 2] = b; d[p + 3] = 255;
+    }
+    if ((j & 63) === 63) yield;
+  }
+  ic.putImageData(id, 0, 0);
+  ctx.setTransform(k, 0, 0, k, -x0 * k, 0);
+  ctx.fillStyle = T.paper;
+  ctx.fillRect(x0, 0, x1 - x0, WH);
+  ctx.imageSmoothingEnabled = true;
+  if (ctx.imageSmoothingQuality) ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, gx0 - c / 2, gy0 - c / 2, nx * c, ny * c);
+  yield;
+
+  // --- isolines (marching squares, batched into paths) ---
+  var iv = STYLE.interval;
+  var P = {
+    contour: [], index: [], depth: [], shore: [], wl: [],
+    river: [[], [], []], road: [], track: []
+  };
+  for (var q = 0; q < 8; q++) P.contour[q] = [];
+  for (var q = 0; q < 8; q++) P.index[q] = [];
+  function seg(arr, ax, ay, bx, by) { arr.push(ax, ay, bx, by); }
+  function iso(a, b, cc, dd, lv, X, Y, arr) {
+    // corners: a=(X,Y) b=(X+c,Y) cc=(X+c,Y+c) dd=(X,Y+c)
+    var code = (a > lv ? 8 : 0) | (b > lv ? 4 : 0) | (cc > lv ? 2 : 0) | (dd > lv ? 1 : 0);
+    if (code === 0 || code === 15) return;
+    var tx = X + c * (lv - a) / (b - a), ty = Y;
+    var rx = X + c, ry = Y + c * (lv - b) / (cc - b);
+    var bx = X + c * (lv - dd) / (cc - dd), by = Y + c;
+    var lx = X, ly = Y + c * (lv - a) / (dd - a);
+    switch (code) {
+      case 1: case 14: seg(arr, lx, ly, bx, by); break;
+      case 2: case 13: seg(arr, bx, by, rx, ry); break;
+      case 3: case 12: seg(arr, lx, ly, rx, ry); break;
+      case 4: case 11: seg(arr, tx, ty, rx, ry); break;
+      case 6: case 9: seg(arr, tx, ty, bx, by); break;
+      case 7: case 8: seg(arr, lx, ly, tx, ty); break;
+      case 5: seg(arr, lx, ly, tx, ty); seg(arr, bx, by, rx, ry); break;
+      case 10: seg(arr, tx, ty, rx, ry); seg(arr, lx, ly, bx, by); break;
+    }
+  }
+  var ix0 = Math.max(0, Math.floor((x0 - gx0) / c) - 1), ix1 = Math.min(nx - 1, Math.ceil((x1 - gx0) / c) + 1);
+  for (var j = 0; j < ny - 1; j++) {
+    var Y = gy0 + j * c;
+    for (var i = ix0; i < ix1; i++) {
+      var X = gx0 + i * c, i00 = j * nx + i, i10 = i00 + 1, i11 = i00 + nx + 1, i01 = i00 + nx;
+      var a = H[i00], b = H[i10], cc = H[i11], dd = H[i01];
+      var sea = (SEA[i00] + SEA[i11]) * 0.5;
+      // shift heights so that contour levels are measured from sea level
+      var A = a - sea, B = b - sea, C = cc - sea, D = dd - sea;
+      var lo = Math.min(A, B, C, D), hi = Math.max(A, B, C, D);
+      if (lo < 0 && hi > 0) {
+        iso(A, B, C, D, 0, X, Y, P.shore);
+        iso(A, B, C, D, -0.012, X, Y, P.wl);
+        iso(A, B, C, D, -0.028, X, Y, P.wl);
+      } else if (lo < -0.012 && hi > -0.03) {
+        iso(A, B, C, D, -0.012, X, Y, P.wl);
+        iso(A, B, C, D, -0.028, X, Y, P.wl);
+      }
+      var l0 = Math.ceil(lo / iv), l1 = Math.floor(hi / iv);
+      for (var l = l0; l <= l1; l++) {
+        if (l === 0) continue;
+        var lv = l * iv;
+        if (l < 0) { if ((l & 1) === 0) iso(A, B, C, D, lv, X, Y, P.depth); continue; }
+        var band = Math.min(7, Math.floor(lv / 0.46 * 8));
+        iso(A, B, C, D, lv, X, Y, (l % 5 === 0) ? P.index[band] : P.contour[band]);
+      }
+      if (STYLE.rivers && lo > -0.005 && hi < 0.5) {
+        var r0 = RV[i00], r1 = RV[i10], r2 = RV[i11], r3 = RV[i01];
+        if ((r0 > 0) !== (r2 > 0) || (r1 > 0) !== (r3 > 0) || (r0 > 0) !== (r1 > 0)) {
+          var wc = hi < 0.08 ? 2 : hi < 0.22 ? 1 : 0;
+          iso(r0, r1, r2, r3, 0, X, Y, P.river[wc]);
+        }
+      }
+      if (STYLE.roads && lo > 0.006 && hi < 0.3) {
+        var d0 = RD[i00], d1 = RD[i10], d2 = RD[i11], d3 = RD[i01];
+        var slope = hi - lo;
+        if (slope < 0.06) {
+          iso(d0, d1, d2, d3, 0, X, Y, P.road);
+          var X2 = X; // tracks: a second, rarer network
+          iso(d0, d1, d2, d3, 0.55, X2, Y, P.track);
+        }
+      }
+    }
+    if ((j & 31) === 31) yield;
+  }
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  var px = 1 / scale;
+  function strokeSegs(arr, style, w, dashedFn) {
+    if (!arr.length) return;
+    ctx.beginPath();
+    for (var n = 0; n < arr.length; n += 4) {
+      if (dashedFn && !dashedFn(arr[n], arr[n + 1])) continue;
+      ctx.moveTo(arr[n], arr[n + 1]); ctx.lineTo(arr[n + 2], arr[n + 3]);
+    }
+    ctx.strokeStyle = style; ctx.lineWidth = w * px; ctx.stroke();
+  }
+  function bandStyle(base, q) { return base === "ramp" ? T._ramp[q] : base; }
+  strokeSegs(P.depth, T.depth, 0.6);
+  yield;
+  for (var q = 0; q < 8; q++) {
+    if (T.glow) strokeSegs(P.contour[q], bandStyle(T.contour, q).replace("rgb", "rgba").replace(")", ",.16)"), 2.6);
+    strokeSegs(P.contour[q], T.glow ? bandStyle(T.contour, q).replace("rgb", "rgba").replace(")", ",.55)") : T.contour, 0.6);
+  }
+  for (var q = 0; q < 8; q++) {
+    if (T.glow) strokeSegs(P.index[q], bandStyle(T.index, q).replace("rgb", "rgba").replace(")", ",.22)"), 4);
+    strokeSegs(P.index[q], bandStyle(T.index, q), 1.15);
+  }
+  yield;
+  strokeSegs(P.wl, T.waterline, 0.6);
+  if (T.glow) strokeSegs(P.shore, "rgba(110,225,235,.18)", 4.5);
+  strokeSegs(P.shore, T.shore, 1.25);
+  strokeSegs(P.river[0], T.river, 0.8);
+  strokeSegs(P.river[1], T.river, 1.3);
+  strokeSegs(P.river[2], T.river, 2.0);
+  if (STYLE.roads) {
+    strokeSegs(P.track, T.track, 0.9, function(x, y) { return (Math.floor((x + y * 0.37) / 5) & 1) === 0; });
+    strokeSegs(P.road, T.halo, 3.2);
+    strokeSegs(P.road, T.road, 1.5);
+  }
+  yield;
+
+  // --- graticule and neatline ---
+  ctx.lineCap = "butt";
+  if (STYLE.grid) {
+    ctx.beginPath();
+    for (var gx = Math.ceil(x0 / 250) * 250; gx <= x1; gx += 250) { ctx.moveTo(gx, 20); ctx.lineTo(gx, WH - 20); }
+    for (var gy = 250; gy < WH; gy += 250) { ctx.moveTo(x0, gy); ctx.lineTo(x1, gy); }
+    ctx.strokeStyle = T.grid; ctx.lineWidth = 0.6 * px; ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.moveTo(x0, 14); ctx.lineTo(x1, 14); ctx.moveTo(x0, WH - 14); ctx.lineTo(x1, WH - 14);
+  ctx.strokeStyle = T.frame; ctx.lineWidth = 1.2 * px; ctx.stroke();
+  ctx.beginPath();
+  for (var tx = Math.ceil(x0 / 50) * 50; tx <= x1; tx += 50) {
+    var tl = tx % 250 === 0 ? 9 : 5;
+    ctx.moveTo(tx, 14); ctx.lineTo(tx, 14 + tl); ctx.moveTo(tx, WH - 14); ctx.lineTo(tx, WH - 14 - tl);
+  }
+  ctx.lineWidth = 0.8 * px; ctx.stroke();
+  ctx.fillStyle = T.frame; ctx.textBaseline = "alphabetic"; ctx.textAlign = "center";
+  ctx.font = "10px " + STYLE.fontSans;
+  for (var tx = Math.ceil((x0 - 60) / 500) * 500; tx <= x1 + 60; tx += 500) {
+    var deg = tx / 6000, D = Math.floor(deg), M = Math.floor((deg - D) * 60);
+    var lab = (12 + D) + "\u00b0" + (M < 10 ? "0" : "") + M + "\u2032 E";
+    ctx.fillText(lab, tx, WH - 3);
+  }
+  yield;
+
+  // --- features: peaks, towns, water names, regions ---
+  var halo = T.halo, out = {};
+  function label(text, x, y, font, color, align, spacing) {
+    ctx.font = font; ctx.textAlign = align || "left";
+    ctx.lineWidth = 3 * px; ctx.strokeStyle = halo; ctx.lineJoin = "round";
+    if (spacing) {
+      var total = 0, ws = [];
+      for (var n = 0; n < text.length; n++) { ws.push(ctx.measureText(text[n]).width); total += ws[n] + (n ? spacing : 0); }
+      var cx = align === "center" ? x - total / 2 : x;
+      ctx.textAlign = "left";
+      for (var n = 0; n < text.length; n++) {
+        ctx.strokeText(text[n], cx, y); ctx.fillStyle = color; ctx.fillText(text[n], cx, y);
+        cx += ws[n] + spacing;
+      }
+      return;
+    }
+    ctx.strokeText(text, x, y); ctx.fillStyle = color; ctx.fillText(text, x, y);
+  }
+  var M0 = x0 - 260, M1 = x1 + 260;
+  // peaks
+  if (STYLE.peaks) {
+    var PC = 170;
+    for (var ci = Math.floor(M0 / PC); ci <= Math.floor(M1 / PC); ci++) {
+      for (var cj = 0; cj < WH / PC; cj++) {
+        var sd = seedAt(ci * PC);
+        var px0 = (ci + hash3(ci, cj, sd)) * PC, py0 = (cj + hash3(cj, ci, sd + 7)) * PC;
+        if (py0 < 60 || py0 > WH - 60) continue;
+        var bx = px0, by = py0, bh = sampleAt(bx, by, out).h;
+        for (var st2 = 0; st2 < 14; st2++) {
+          var e = 5, hx = sampleAt(bx + e, by, out).h - sampleAt(bx - e, by, out).h, hy = sampleAt(bx, by + e, out).h - sampleAt(bx, by - e, out).h;
+          var gl = Math.sqrt(hx * hx + hy * hy) || 1;
+          bx += hx / gl * 9; by += hy / gl * 9;
+        }
+        if (Math.floor(bx / PC) !== ci || Math.floor(by / PC) !== cj) continue;
+        sampleAt(bx, by, out);
+        var rise = out.h - out.sea;
+        if (rise < 0.3 || by < 50 || by > WH - 50) continue;
+        ctx.beginPath(); ctx.moveTo(bx, by - 4.5); ctx.lineTo(bx + 4, by + 2.5); ctx.lineTo(bx - 4, by + 2.5); ctx.closePath();
+        ctx.fillStyle = T.peak; ctx.fill();
+        var m = Math.round(rise * 3600);
+        label(m.toLocaleString("en-US"), bx + 6, by + 3, "italic 10px " + STYLE.fontSerif, T.peak, "left");
+      }
+    }
+  }
+  yield;
+  // towns
+  if (STYLE.towns) {
+    var TC = 220;
+    for (var ci = Math.floor(M0 / TC); ci <= Math.floor(M1 / TC); ci++) {
+      for (var cj = 0; cj < WH / TC; cj++) {
+        var sd = seedAt(ci * TC);
+        var r0 = hash3(ci, cj, sd + 11);
+        if (r0 > 0.62) continue;
+        var tx2 = (ci + 0.15 + 0.7 * hash3(ci, cj, sd + 12)) * TC, ty2 = (cj + 0.15 + 0.7 * hash3(ci, cj, sd + 13)) * TC;
+        if (ty2 < 50 || ty2 > WH - 40) continue;
+        sampleAt(tx2, ty2, out);
+        var rise = out.h - out.sea;
+        if (rise < 0.012 || rise > 0.26 || Math.abs(out.rv) < 0.012) continue;
+        var big = r0 < 0.1, nm = placeName(hash3(ci, cj, sd + 14), hash3(cj, ci, sd + 15));
+        if (big) {
+          ctx.fillStyle = T.town; ctx.fillRect(tx2 - 3.5, ty2 - 3.5, 7, 7);
+          ctx.fillStyle = T.halo; ctx.fillRect(tx2 - 1.5, ty2 - 1.5, 3, 3);
+          label(nm, tx2 + 7, ty2 + 4, "600 13px " + STYLE.fontSans, T.text, "left");
+        } else {
+          ctx.beginPath(); ctx.arc(tx2, ty2, 2.4, 0, 6.2832); ctx.fillStyle = T.town; ctx.fill();
+          label(nm, tx2 + 5, ty2 + 3.5, "10.5px " + STYLE.fontSans, T.text, "left");
+        }
+      }
+    }
+    yield;
+    // water names
+    var WC = 520;
+    for (var ci = Math.floor((x0 - 420) / WC); ci <= Math.floor((x1 + 420) / WC); ci++) {
+      for (var cj = 0; cj < 2; cj++) {
+        var sd = seedAt(ci * WC);
+        var wx2 = (ci + 0.2 + 0.6 * hash3(ci, cj, sd + 21)) * WC, wy2 = 180 + cj * 420 + hash3(ci, cj, sd + 22) * 200;
+        sampleAt(wx2, wy2, out);
+        var depth = out.sea - out.h;
+        if (depth < 0.07) continue;
+        var nm = placeName(hash3(ci, cj, sd + 23), hash3(cj, ci, sd + 24));
+        var kind = hash3(ci, cj, sd + 25);
+        var text = depth > 0.17 ? (kind < 0.5 ? "Gulf of " + nm : nm + " Sound") : (kind < 0.5 ? "Lake " + nm : nm + " Water");
+        label(text, wx2, wy2, "italic 15px " + STYLE.fontSerif, T.waterText, "center", 2.2);
+      }
+    }
+    // regions
+    var RC = 2600;
+    for (var ci = Math.floor((x0 - 900) / RC); ci <= Math.floor((x1 + 900) / RC); ci++) {
+      var rx = (ci + 0.5) * RC;
+      var info = regionName(rx);
+      label(info.toUpperCase(), rx, 66, "24px " + STYLE.fontSerifSC, T.regionText, "center", 9);
+    }
+  }
+}
+
+function regionName(x) {
+  var cp = columnParams(x), K = cp.t >= 0.5 ? cp.B : cp.A, N = noiseFor(K.seed), R = region(N, x);
+  var ci = Math.floor(x / 2600), nm = placeName(hash3(ci, 1, K.seed + 31), hash3(ci, 2, K.seed + 32));
+  var r = hash3(ci, 3, K.seed);
+  var kind;
+  if (R.seaOff + K.sea > 0.06) kind = r < 0.5 ? "The " + nm + " Isles" : nm + " Archipelago";
+  else if (R.lakes > 0.35) kind = "The " + nm + " Lakes";
+  else if (R.rug * K.rug > 0.68) kind = r < 0.5 ? "The " + nm + " Fells" : nm + " Highlands";
+  else if (R.rug * K.rug < 0.3) kind = r < 0.5 ? "The " + nm + " Levels" : nm + " Vale";
+  else kind = r < 0.5 ? "The " + nm + " Downs" : nm + " Country";
+  return kind;
+}
+
+</script>
+<script>
+/* ===== Endless survey map: browser runtime ===== */
+(function() {
+  "use strict";
+  var T = 400, OVER = 2, BASE = 0.1, DIST = 2e7;
+  var stage = document.getElementById("stage");
+  var strip = document.getElementById("strip");
+  var inner = document.getElementById("inner");
+  var loading = document.getElementById("loading");
+  var $ = function(id) { return document.getElementById(id); };
+  var coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+
+  var S = {
+    scale: 1, k: 1, W: 0, H: 0,
+    tiles: [], pool: [], job: null, nextTile: 0, drawnRight: 0,
+    epoch: 1, speed: 35, paused: false, hidden: false, eff: 0, rate: 0,
+    ready: false, started: false
+  };
+  var env = { makeCanvas: function(w, h) { var c = document.createElement("canvas"); c.width = w; c.height = h; return c; } };
+
+  // compositor-driven scroll: main-thread work never stalls it
+  var anim = strip.animate(
+    [{ transform: "translate3d(0,0,0)" }, { transform: "translate3d(" + (-DIST) + "px,0,0)" }],
+    { duration: DIST / BASE, easing: "linear", fill: "forwards" }
+  );
+  anim.playbackRate = 0;
+  function posPx() { return (anim.currentTime || 0) * BASE; }
+  function viewLeft() { return posPx() / S.scale; }
+  function viewRight() { return (posPx() + S.W) / S.scale; }
+  function setRate(r) {
+    if (Math.abs(r - S.rate) < 0.003 && !(r === 0 && S.rate !== 0)) return;
+    S.rate = r;
+    if (anim.updatePlaybackRate) anim.updatePlaybackRate(r); else anim.playbackRate = r;
+  }
+
+  function measure(force) {
+    var W = stage.clientWidth, H = stage.clientHeight;
+    if (!W || !H) return;
+    if (!force && S.W && W === S.W && Math.abs(H - S.H) / S.H < 0.15) { S.H = H; return; }
+    var units = S.W ? viewLeft() : 0, old = S.scale;
+    S.W = W; S.H = H; S.scale = H / WH;
+    var dpr = Math.min(window.devicePixelRatio || 1, coarse ? 2 : 2);
+    var maxPx = coarse ? 2.2e6 : 3.2e6, px = (T + 2 * OVER) * WH * Math.pow(S.scale * dpr, 2);
+    if (px > maxPx) dpr *= Math.sqrt(maxPx / px);
+    S.k = S.scale * dpr;
+    inner.style.transform = "scale(" + S.scale + ")";
+    if (old !== S.scale && units) anim.currentTime = units * S.scale / BASE;
+    if (S.job) { S.job = null; }
+    // tiles drawn for another size get repainted at the new resolution
+    S.epoch++;
+  }
+
+  // ---------- tile jobs ----------
+  function committedRight() {
+    return Math.max(S.drawnRight, S.job && !S.job.replace ? S.job.x1 : 0);
+  }
+  function startJob(idx, replace) {
+    var x0 = idx * T - OVER, x1 = idx * T + T + OVER;
+    var cv = S.pool.pop() || document.createElement("canvas");
+    cv.width = Math.ceil((x1 - x0) * S.k); cv.height = Math.ceil(WH * S.k);
+    var ctx = cv.getContext("2d");
+    S.job = { idx: idx, x0: x0, x1: x1, cv: cv, gen: renderTile(env, ctx, x0, x1, S.k, S.scale), replace: replace, epoch: S.epoch };
+  }
+  function finishJob() {
+    var J = S.job; S.job = null;
+    var cv = J.cv;
+    cv.className = "tile";
+    cv.style.left = J.x0 + "px"; cv.style.width = (J.x1 - J.x0) + "px"; cv.style.height = WH + "px";
+    if (J.replace) {
+      var old = J.replace.el;
+      if (!old.parentNode) { S.pool.push(cv); return; }
+      cv.style.opacity = "0";
+      inner.insertBefore(cv, old.nextSibling);
+      J.replace.el = cv; J.replace.epoch = J.epoch;
+      requestAnimationFrame(function() {
+        cv.style.opacity = "1";
+        setTimeout(function() { old.remove(); release(old); }, 700);
+      });
+    } else {
+      inner.appendChild(cv);
+      S.tiles.push({ idx: J.idx, x0: J.x0, x1: J.x1, el: cv, epoch: J.epoch });
+      S.nextTile = J.idx + 1;
+      S.drawnRight = J.x1 - OVER;
+    }
+  }
+  function release(el) { if (S.pool.length < 2) S.pool.push(el); else { el.width = 0; el.height = 0; } }
+  function recycle() {
+    var vl = viewLeft();
+    while (S.tiles.length && S.tiles[0].x1 < vl - 40) {
+      var t = S.tiles.shift(); t.el.remove(); release(t.el);
+    }
+    pruneKeyframes(vl - 2000);
+  }
+  function staleTile() {
+    var vl = viewLeft(), best = null;
+    for (var i = 0; i < S.tiles.length; i++) {
+      var t = S.tiles[i];
+      if (t.epoch !== S.epoch && t.x1 > vl) { best = t; break; }
+    }
+    if (!best) for (var i = 0; i < S.tiles.length; i++) if (S.tiles[i].epoch !== S.epoch) { best = S.tiles[i]; break; }
+    return best;
+  }
+  function speedUnits() { return S.speed / S.scale; }
+  function rasterTarget() { return viewRight() + T + Math.max(T, speedUnits() * 5); }
+
+  function work() {
+    if (!S.started) return false;
+    var deadline = performance.now() + 9, did = false;
+    while (performance.now() < deadline) {
+      if (S.job) {
+        var J = S.job;
+        if (J.epoch !== S.epoch && J.replace) { S.job = null; S.pool.push(J.cv); continue; }
+        var r = J.gen.next();
+        if (r.done) finishJob();
+        did = true; continue;
+      }
+      // keep the screen ahead filled first, then repaint restyled tiles
+      if (S.nextTile * T < viewRight() + 60) { startJob(S.nextTile, null); did = true; continue; }
+      var st = staleTile();
+      if (st) { startJob(st.idx, st); did = true; continue; }
+      if (S.nextTile * T < rasterTarget()) { startJob(S.nextTile, null); did = true; continue; }
+      break;
+    }
+    return did;
+  }
+  var mc = new MessageChannel(), pumping = false;
+  mc.port1.onmessage = function() {
+    var busy = work();
+    if (!S.ready && S.started && S.drawnRight >= viewRight()) { S.ready = true; loading.classList.add("done"); }
+    if (busy) mc.port2.postMessage(0); else { pumping = false; setTimeout(kick, 80); }
+  };
+  function kick() { if (!pumping) { pumping = true; mc.port2.postMessage(0); } }
+
+  // ---------- governor: speed, back-pressure, HUD ----------
+  var hudRegion = $("hudRegion"), hudSheet = $("hudSheet"), hudCoord = $("hudCoord"), scaleBar = $("scaleBar"), statusEl = $("status");
+  var lastRegion = "", lastStatus = "", tick = 0;
+  function dms(v) {
+    var d = Math.floor(v), mf = (v - d) * 60, m = Math.floor(mf), s = Math.floor((mf - m) * 60);
+    return d + "\u00b0" + (m < 10 ? "0" : "") + m + "\u2032" + (s < 10 ? "0" : "") + s + "\u2033";
+  }
+  function governor() {
+    recycle();
+    var ahead = S.drawnRight - viewRight();
+    var need = Math.max(120, speedUnits() * 3);
+    var f = S.ready ? Math.max(0, Math.min(1, (ahead - 20) / need)) : 0;
+    S.eff = f < S.eff ? f : S.eff + (f - S.eff) * 0.12;
+    setRate((S.paused || S.hidden) ? 0 : (S.speed / 100) * S.eff);
+    if ((tick++ & 3) === 0 && S.started) {
+      var cx = (viewLeft() + viewRight()) / 2;
+      var reg = regionName(cx);
+      if (reg !== lastRegion) { hudRegion.textContent = reg; lastRegion = reg; }
+      hudSheet.textContent = "Sheet " + (Math.floor(cx / 2000) + 1);
+      hudCoord.textContent = dms(51.4) + " N   " + dms(12 + cx / 6000) + " E";
+      scaleBar.style.width = Math.round(200 * S.scale) + "px";
+      var txt = !S.ready ? "Surveying the first sheet…" : S.paused ? "Paused." : f < 0.98 ? "Slowing while the survey catches up." : (ahead * S.scale / S.W).toFixed(1) + " screens surveyed ahead.";
+      if (txt !== lastStatus) { statusEl.textContent = txt; lastStatus = txt; }
+    }
+    kick();
+  }
+
+  // ---------- controls ----------
+  function bindRange(id, outId, fmt, fn) {
+    var el = $(id), out = $(outId);
+    var f = function() { out.textContent = fmt(+el.value); fn(+el.value); };
+    el.addEventListener("input", f); f(); return el;
+  }
+  function restyle() { S.epoch++; kick(); }
+  var playBtn = $("play");
+  function setPaused(p) { S.paused = p; playBtn.textContent = p ? "Resume" : "Pause"; playBtn.setAttribute("aria-pressed", p ? "true" : "false"); governor(); }
+  playBtn.addEventListener("click", function() { setPaused(!S.paused); });
+  bindRange("speed", "speedOut", function(v) { return v + " px/s"; }, function(v) { S.speed = v; });
+
+  function setTheme(name) {
+    STYLE.theme = name;
+    document.body.dataset.map = name;
+    var r = document.querySelector("input[name=theme][value=" + name + "]"); if (r) r.checked = true;
+    restyle();
+  }
+  document.querySelectorAll("input[name=theme]").forEach(function(r) { r.addEventListener("change", function() { setTheme(r.value); }); });
+  document.querySelectorAll("input[name=interval]").forEach(function(r) { r.addEventListener("change", function() { STYLE.interval = +r.value; restyle(); }); });
+  var shadeT = 0;
+  bindRange("shade", "shadeOut", function(v) { return v + "%"; }, function(v) { STYLE.shade = v; clearTimeout(shadeT); shadeT = setTimeout(restyle, 200); });
+  ["rivers", "roads", "towns", "peaks", "grid"].forEach(function(k) {
+    $(k).addEventListener("change", function(e) { STYLE[k] = e.target.checked; restyle(); });
+  });
+  var clouds = $("clouds");
+  $("cloudsOn").addEventListener("change", function(e) { clouds.classList.toggle("off", !e.target.checked); });
+
+  // wander: drift to a new style every couple of minutes
+  var wanderT = 0, ORDER = ["survey", "relief", "nocturne", "blueprint", "ink"];
+  $("wander").addEventListener("change", function(e) {
+    clearInterval(wanderT);
+    if (e.target.checked) wanderT = setInterval(function() {
+      if (S.paused) return;
+      setTheme(ORDER[(ORDER.indexOf(STYLE.theme) + 1) % ORDER.length]);
+    }, 120000);
+  });
+
+  // terrain changes blend in beyond the surveyed edge
+  var terrainT = 0, pending = {};
+  function terrain(patch) {
+    for (var p in patch) pending[p] = patch[p];
+    clearTimeout(terrainT);
+    terrainT = setTimeout(function() {
+      if (!S.started) { for (var q in pending) KF[0][q] = pending[q]; pending = {}; return; }
+      addKeyframe(committedRight() + 8, pending); pending = {}; kick();
+    }, 300);
+  }
+  bindRange("sea", "seaOut", function(v) { return (v > 0 ? "+" : "") + v; }, function(v) { terrain({ sea: v / 100 * 0.15 }); });
+  bindRange("rug", "rugOut", function(v) { return v + "%"; }, function(v) { terrain({ rug: v / 100 }); });
+  bindRange("size", "sizeOut", function(v) { return v + "%"; }, function(v) { terrain({ size: v / 100 }); });
+
+  var seedEl = $("seed");
+  function newSeed() { return (Date.now() % 1000000) + Math.floor(Math.random() * 1000); }
+  $("newLand").addEventListener("click", function() { var s = newSeed(); seedEl.value = s; terrain({ seed: s }); });
+  $("seedForm").addEventListener("submit", function(e) {
+    e.preventDefault();
+    var v = seedEl.value.trim(); if (!v) return;
+    terrain({ seed: /^\d+$/.test(v) ? +v : hashStr(v) });
+  });
+
+  var panel = $("panel"), menuBtn = $("menu");
+  function setPanel(open) { panel.hidden = !open; menuBtn.setAttribute("aria-expanded", open ? "true" : "false"); }
+  menuBtn.addEventListener("click", function() { setPanel(panel.hidden); });
+  $("closePanel").addEventListener("click", function() { setPanel(false); menuBtn.focus(); });
+  $("hideAll").addEventListener("click", function() { setPanel(false); document.body.classList.add("bare"); });
+  stage.addEventListener("click", function() {
+    if (document.body.classList.contains("bare")) document.body.classList.remove("bare");
+    else if (!panel.hidden) setPanel(false);
+  });
+  document.addEventListener("keydown", function(e) {
+    var tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" && e.target.type === "text") return;
+    if (e.code === "Space" && tag !== "button") { e.preventDefault(); setPaused(!S.paused); }
+    else if (e.key === "h" || e.key === "H") document.body.classList.toggle("bare");
+    else if (e.key === "Escape" && !panel.hidden) { setPanel(false); menuBtn.focus(); }
+  });
+  document.addEventListener("visibilitychange", function() {
+    S.hidden = document.hidden;
+    if (S.hidden) anim.pause(); else { anim.play(); S.eff = Math.min(S.eff, 0.3); }
+    governor();
+  });
+  var rT = 0;
+  window.addEventListener("resize", function() { clearTimeout(rT); rT = setTimeout(function() { measure(false); governor(); }, 150); });
+  window.addEventListener("orientationchange", function() { setTimeout(function() { measure(true); governor(); }, 300); });
+
+  // cloud shadow texture (tileable, drifts on the compositor)
+  (function() {
+    var n = 768, c = document.createElement("canvas"); c.width = c.height = n;
+    var g = c.getContext("2d"), rnd = mulberry32(99);
+    for (var i = 0; i < 26; i++) {
+      var x = rnd() * n, y = rnd() * n, r = 60 + rnd() * 140;
+      for (var ox = -n; ox <= n; ox += n) for (var oy = -n; oy <= n; oy += n) {
+        var gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        gr.addColorStop(0, "rgba(40,50,70,.22)"); gr.addColorStop(1, "rgba(40,50,70,0)");
+        g.fillStyle = gr; g.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
+      }
+    }
+    $("cloudLayer").style.backgroundImage = "url(" + c.toDataURL() + ")";
+  })();
+
+  // ---------- boot: wait briefly for the map fonts so labels match across tiles ----------
+  var seed0 = newSeed();
+  seedEl.value = seed0;
+  KF[0].seed = seed0;
+  document.body.dataset.map = STYLE.theme;
+  measure(true);
+  setInterval(governor, 100);
+  function begin(ok) {
+    if (ok) {
+      STYLE.fontSerif = '"IM Fell English", Georgia, serif';
+      STYLE.fontSerifSC = '"IM Fell English SC", Georgia, serif';
+      STYLE.fontSans = '"Libre Franklin", "Helvetica Neue", Arial, sans-serif';
+    }
+    S.started = true; S.epoch++; kick();
+  }
+  var fontsReady = document.fonts && document.fonts.load ? Promise.all([
+    document.fonts.load('italic 15px "IM Fell English"'),
+    document.fonts.load('24px "IM Fell English SC"'),
+    document.fonts.load('10px "Libre Franklin"'),
+    document.fonts.load('600 13px "Libre Franklin"')
+  ]).then(function() {
+    return document.fonts.check('italic 15px "IM Fell English"') && document.fonts.check('10px "Libre Franklin"');
+  }) : Promise.resolve(false);
+  var done = false;
+  fontsReady.then(function(ok) { if (!done) { done = true; begin(ok); } }, function() { if (!done) { done = true; begin(false); } });
+  setTimeout(function() { if (!done) { done = true; begin(false); } }, 2500);
+})();
+
+</script>
+</body>
+</html>
