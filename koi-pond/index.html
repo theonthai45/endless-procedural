@@ -120,8 +120,8 @@ body.zen:not(.awake) .home-link{opacity:0;pointer-events:none}
     <button class="x" id="close" aria-label="Close settings">×</button>
   </div>
   <div class="seg" role="group" aria-label="Art style">
-    <button data-style="real" aria-pressed="true">Realistic</button>
-    <button data-style="ink" aria-pressed="false">Ink wash</button>
+    <button data-style="real" aria-pressed="false">Realistic</button>
+    <button data-style="ink" aria-pressed="true">Ink wash</button>
   </div>
   <div class="rows">
     <label><span>Koi</span><output id="o-koi"></output><input type="range" id="koi" min="1" max="20" step="1"></label>
@@ -163,7 +163,7 @@ const shade = (h, f) => '#' + hexRgb(h).map(v => Math.round(clamp(f >= 0 ? v + (
 /* ---------------- settings ---------------- */
 const KEY = 'koi-pond-v1';
 const small = Math.min(innerWidth, innerHeight) < 640;
-const defaults = { style: 'real', koi: small ? 5 : 8, fish: small ? 10 : 18, pads: small ? 6 : 10, lotus: small ? 2 : 4, petals: small ? 8 : 14, autofeed: false };
+const defaults = { style: 'ink', koi: small ? 5 : 8, fish: small ? 10 : 18, pads: small ? 6 : 10, lotus: small ? 2 : 4, petals: small ? 8 : 14, autofeed: false };
 let S = { ...defaults };
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
