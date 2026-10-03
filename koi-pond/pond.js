@@ -670,6 +670,11 @@ const rip = {
    ENTITIES
    ===================================================================== */
 let time = 0;
+// Growth: each pellet a koi eats adds `appetite` to its growth factor (body length eases up to
+// match). At GROW_MAX it lingers a moment, then swims off the nearest edge and a new koi at
+// its original size enters from a random edge in the same slot. At most a third of the
+// school is leaving at once, so the pond never empties after a heavy feed.
+const GROW_MAX = 1.5;
 const koi = [], minnows = [], pads = [], flowers = [], petals = [], food = [];
 function flowAt(x, y) { FX = Math.sin(y * 0.003 + time * 0.05) * 4 + 2; FY = Math.cos(x * 0.0027 - time * 0.04) * 4; }   // writes FX, FY
 
@@ -679,10 +684,19 @@ class Koi {
     for (const k of ['px', 'py', 'rx', 'ry', 'tx', 'ty']) this[k] = new Float32Array(this.N);
     this.desc = makeDesc(); this.spawn(); paintKoi(this);
   }
-  spawn() {
-    this.L = baseLen * rnd(0.72, 1.15); this.girth = rnd(0.93, 1.08);
+  spawn(fromEdge = false) {
+    this.L = this.baseL = baseLen * rnd(0.72, 1.15); this.girth = rnd(0.93, 1.08);
+    this.growth = 1; this.appetite = rnd(0.03, 0.055); this.leaving = false; this.leaveT = -1; this.exitT = 0;
     this.heading = rnd(TAU);
-    const x = rnd(0.15, 0.85) * W, y = rnd(0.15, 0.85) * H, seg = this.L / (this.N - 1);
+    let x = rnd(0.15, 0.85) * W, y = rnd(0.15, 0.85) * H;
+    if (fromEdge) {   // start with the head just past an edge, body trailing outside, facing in
+      const e = rint(4), o = this.L * 0.35, j = rnd(-0.5, 0.5);
+      if (e === 0) { x = -o; y = rnd(0.2, 0.8) * H; this.heading = j; }
+      else if (e === 1) { x = W + o; y = rnd(0.2, 0.8) * H; this.heading = Math.PI + j; }
+      else if (e === 2) { x = rnd(0.2, 0.8) * W; y = -o; this.heading = Math.PI / 2 + j; }
+      else { x = rnd(0.2, 0.8) * W; y = H + o; this.heading = -Math.PI / 2 + j; }
+    }
+    const seg = this.L / (this.N - 1);
     for (let i = 0; i < this.N; i++) { this.px[i] = x - Math.cos(this.heading) * seg * i; this.py[i] = y - Math.sin(this.heading) * seg * i; }
     this.speed = this.L * 0.3; this.cruise = this.L * rnd(0.2, 0.4); this.cruiseT = rnd(3, 10);
     this.phase = rnd(TAU); this.finPhase = rnd(TAU); this.turnRate = 0;
@@ -708,7 +722,20 @@ class Koi {
     this.wx = best[0]; this.wy = best[1];
     this.wpT = this.wpAge = rnd(7, 16);
   }
-  rescale(f) { const hx = this.px[0], hy = this.py[0]; this.L *= f; for (let i = 0; i < this.N; i++) { this.px[i] = hx + (this.px[i] - hx) * f; this.py[i] = hy + (this.py[i] - hy) * f; } }
+  respawn() { this.desc = makeDesc(); this.spawn(true); paintKoi(this); }   // repainted while off-screen
+  startLeaving() {
+    this.leaving = true; this.target = null; this.leaveT = -1; this.exitT = 0;
+    // head for the nearest edge, favouring the one it is already facing; aim well past it
+    const hx = this.px[0], hy = this.py[0], o = this.L * 3;
+    const exits = [[hx, -o, hy, Math.PI], [W - hx, W + o, hy, 0], [hy, hx, -o, -Math.PI / 2], [H - hy, hx, H + o, Math.PI / 2]];
+    let bs = Infinity;
+    for (const [d, x, y, a] of exits) {
+      const sc = Math.max(d, 0) * (1 + Math.abs(wrapA(a - this.heading)) * 0.6);
+      if (sc < bs) { bs = sc; this.wx = x; this.wy = y; }
+    }
+    this.cruise = this.L * rnd(0.45, 0.6);
+  }
+  rescale(f) { const hx = this.px[0], hy = this.py[0]; this.L *= f; this.baseL *= f; for (let i = 0; i < this.N; i++) { this.px[i] = hx + (this.px[i] - hx) * f; this.py[i] = hy + (this.py[i] - hy) * f; } }
   chooseTarget() {
     let best = null, bc = Infinity; const hx = this.px[0], hy = this.py[0], diag = Math.hypot(W, H);
     for (const f of food) {
@@ -721,26 +748,38 @@ class Koi {
     this.target = best;
   }
   update(dt) {
+    // growth: ease towards the target length so each pellet reads as a gentle swell
+    const gL = this.baseL * this.growth;
+    this.L += (gL - this.L) * Math.min(1, dt * 1.2);
+    if (!this.leaving && this.growth >= GROW_MAX && this.L > gL * 0.99) {
+      if (this.leaveT < 0) this.leaveT = rnd(2, 5);   // linger at full size for a moment
+      else if ((this.leaveT -= dt) <= 0) {
+        let n = 0; for (const o of koi) if (o.leaving) n++;
+        if (n < Math.max(1, Math.ceil(koi.length / 3))) this.startLeaving(); else this.leaveT = rnd(1, 3);
+      }
+    }
     const L = this.L, N = this.N, seg = L / (N - 1), px = this.px, py = this.py;
     const hx = px[0], hy = py[0], dx = Math.cos(this.heading), dy = Math.sin(this.heading);
-    if ((this.retarget -= dt) <= 0) { this.retarget = rnd(0.3, 0.6); this.chooseTarget(); }
+    if (!this.leaving && (this.retarget -= dt) <= 0) { this.retarget = rnd(0.3, 0.6); this.chooseTarget(); }
     if (this.target && this.target.gone) { this.target = null; this.retarget = 0.05; }
     const chasing = !!this.target;
     // Navigation: swim towards a waypoint (absolute goal), so paths are mostly straight
     // with purposeful turns, instead of a heading-relative wander that drifts into circles.
     const wdx = this.wx - hx, wdy = this.wy - hy;
-    if ((this.wpT -= dt) <= 0 || wdx * wdx + wdy * wdy < L * L * 0.81) this.pickWaypoint();
+    if (!this.leaving && ((this.wpT -= dt) <= 0 || wdx * wdx + wdy * wdy < L * L * 0.81)) this.pickWaypoint();
     // zero-mean meander: a gentle S-weave around the goal line, never a sustained turn
     const meander = Math.sin(time * this.w1 + this.s1) * 0.14 + Math.sin(time * this.w2 + this.s2) * 0.06;
     const wa = Math.atan2(this.wy - hy, this.wx - hx) + meander;
     let ax = Math.cos(wa), ay = Math.sin(wa);
     // edges (look-ahead): if heading out of the pond, re-plan towards open water
-    const look = L * 1.5, fx = hx + dx * look, fy = hy + dy * look, m = L * 0.5;
-    let bx = 0, by = 0;
-    if (fx < m) bx += (m - fx) / L; if (fx > W - m) bx -= (fx - (W - m)) / L;
-    if (fy < m) by += (m - fy) / L; if (fy > H - m) by -= (fy - (H - m)) / L;
-    if ((bx || by) && this.wpT < this.wpAge - 1.5) this.pickWaypoint();
-    ax += bx * 1.5; ay += by * 1.5;
+    if (!this.leaving) {   // a departing koi is meant to cross the edge
+      const look = L * 1.5, fx = hx + dx * look, fy = hy + dy * look, m = L * 0.5;
+      let bx = 0, by = 0;
+      if (fx < m) bx += (m - fx) / L; if (fx > W - m) bx -= (fx - (W - m)) / L;
+      if (fy < m) by += (m - fy) / L; if (fy > H - m) by -= (fy - (H - m)) / L;
+      if ((bx || by) && this.wpT < this.wpAge - 1.5) this.pickWaypoint();
+      ax += bx * 1.5; ay += by * 1.5;
+    }
     // separation from other koi
     for (const o of koi) {
       if (o === this) continue;
@@ -757,7 +796,7 @@ class Koi {
       // if the pellet is beside/behind and close, brake and pivot instead of orbiting it
       const off = Math.abs(wrapA(Math.atan2(ey, ex) - this.heading));
       if (d < L * 2) tSpeed *= clamp(Math.cos(off), 0.2, 1);
-    } else if ((this.cruiseT -= dt) <= 0) { this.cruiseT = rnd(3, 10); this.cruise = L * (Math.random() < 0.15 ? rnd(0.6, 0.9) : rnd(0.15, 0.42)); }
+    } else if (!this.leaving && (this.cruiseT -= dt) <= 0) { this.cruiseT = rnd(3, 10); this.cruise = L * (Math.random() < 0.15 ? rnd(0.6, 0.9) : rnd(0.15, 0.42)); }
     // Turning: angular velocity proportional to heading error (settles onto the goal, no
     // overshoot), capped, and smoothed so turns ease in/out. Koi slow down into sharp turns,
     // which tightens the turning radius the way real fish pivot.
@@ -769,7 +808,7 @@ class Koi {
     tSpeed *= 1 - 0.45 * Math.min(1, Math.abs(turn) / 1.6);
     this.speed += (tSpeed - this.speed) * Math.min(1, dt * (chasing ? 2.2 : 0.9));
     px[0] += Math.cos(this.heading) * this.speed * dt; py[0] += Math.sin(this.heading) * this.speed * dt;
-    px[0] = clamp(px[0], -L * 0.5, W + L * 0.5); py[0] = clamp(py[0], -L * 0.5, H + L * 0.5);
+    if (!this.leaving) { px[0] = clamp(px[0], -L * 0.5, W + L * 0.5); py[0] = clamp(py[0], -L * 0.5, H + L * 0.5); }
     // spine follow with bend limit
     for (let i = 1; i < N; i++) {
       let a = Math.atan2(py[i - 1] - py[i], px[i - 1] - px[i]);
@@ -777,6 +816,12 @@ class Koi {
       const df = wrapA(a - pa), lim = i >= 2 ? 0.27 : 0.35;
       if (df > lim) a = pa + lim; else if (df < -lim) a = pa - lim;
       px[i] = px[i - 1] - Math.cos(a) * seg; py[i] = py[i - 1] - Math.sin(a) * seg;
+    }
+    if (this.leaving) {   // fully off-screen (with room for the tail fin) -> replace with a new koi
+      this.exitT += dt;
+      const m = L * 0.6; let out = true;
+      for (let i = 0; i < N && out; i++) out = px[i] < -m || px[i] > W + m || py[i] < -m || py[i] > H + m;
+      if (out || this.exitT > 45) { this.respawn(); return; }
     }
     this.phase += dt * (2.2 + 6.5 * this.speed / L);
     this.finPhase += dt * (1.8 + Math.abs(this.turnRate) * 1.5);
@@ -788,13 +833,14 @@ class Koi {
     this.gulp = Math.max(0, this.gulp - dt); this.eatCd -= dt;
     const sx = px[0] + Math.cos(this.heading) * L * 0.02, sy = py[0] + Math.sin(this.heading) * L * 0.02;
     const r1 = L * 0.32, r1s = r1 * r1, r2s = L * L * 0.01;
-    if (this.depth < 0.4) for (const f of food) {
+    if (this.depth < 0.4 && !this.leaving) for (const f of food) {
       if (f.gone || !f.landed) continue;
       const ex = sx - f.x, ey = sy - f.y, d2 = ex * ex + ey * ey;
       if (d2 >= r1s) continue;
       if (this.depth < 0.35) { f.vx += ex * dt * 5; f.vy += ey * dt * 5; }   // suction
       if (d2 < r2s && this.eatCd <= 0) {
         f.gone = true; this.eatCd = 0.18; this.gulp = 0.35;
+        this.growth = Math.min(GROW_MAX, this.growth + this.appetite);
         rip.drop(sx, sy, 2.2, 0.7); audio.plop(sx, 'gulp', L / baseLen);
         if (f === this.target) { this.target = null; this.retarget = 0.05; }
       }
