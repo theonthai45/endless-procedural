@@ -3,6 +3,10 @@
    Koi Pond — procedural top-down koi pond.
    Rendering: WebGL2 (fish layer + surface layer FBOs, composited by a
    water shader with refraction, caustics, shadows and specular).
+   Performance: static layers (pond bed / paper) are cached; caustics, dapple
+   and soft shadows run in a half-resolution light pass; a dynamic-resolution
+   controller scales the render size to hold 60 fps (debug: ?scale=0.7 pins it).
+   The fps meter sits at the bottom of the controls panel.
    Realistic style: koi bodies are 3D meshes skinned on the GPU along the swim
    spine and lit per pixel (scales, eyes, gill plates, metallic sheen, sub-surface
    warmth); the pond bed is a cached, height-lit field of procedural pebbles.
@@ -619,16 +623,18 @@ function paintStatic() {
 }
 
 /* =====================================================================
-   RIPPLES — CPU height-field wave simulation, uploaded as R16F texture
+   RIPPLES — CPU height-field wave simulation; its gradient is uploaded as an RG16F texture
    ===================================================================== */
+let GX = 0, GY = 0, FX = 0, FY = 0;   // scratch outputs of rip.gradAt / flowAt (no per-call allocation)
 const rip = {
-  cell: 4, gw: 0, gh: 0, a: null, b: null, tex: gl.createTexture(),
+  cell: 4, gw: 0, gh: 0, a: null, b: null, g: null, tex: gl.createTexture(), dirty: true,
   resize() {
     this.cell = Math.max(3, Math.ceil(Math.max(W, H) / 430));
     this.gw = Math.ceil(W / this.cell) + 3; this.gh = Math.ceil(H / this.cell) + 3;
     this.a = new Float32Array(this.gw * this.gh); this.b = new Float32Array(this.gw * this.gh);
+    this.g = new Float32Array(this.gw * this.gh * 2); this.dirty = true;
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, this.gw, this.gh, 0, gl.RED, gl.FLOAT, this.a);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG16F, this.gw, this.gh, 0, gl.RG, gl.FLOAT, this.g);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   },
@@ -637,19 +643,27 @@ const rip = {
     const x0 = Math.max(1, Math.floor(cx - r)), x1 = Math.min(gw - 2, Math.ceil(cx + r));
     const y0 = Math.max(1, Math.floor(cy - r)), y1 = Math.min(gh - 2, Math.ceil(cy + r));
     for (let iy = y0; iy <= y1; iy++) for (let ix = x0; ix <= x1; ix++) {
-      const d = Math.hypot(ix - cx, iy - cy); if (d < r) a[iy * gw + ix] += str * (0.5 + 0.5 * Math.cos(Math.PI * d / r));
+      const ex = ix - cx, ey = iy - cy, d2 = ex * ex + ey * ey;
+      if (d2 < r * r) a[iy * gw + ix] += str * (0.5 + 0.5 * Math.cos(Math.PI * Math.sqrt(d2) / r));
     }
   },
   step() {
     const { a, b, gw, gh } = this, damp = 0.985;
     for (let y = 1; y < gh - 1; y++) { let i = y * gw + 1; for (let x = 1; x < gw - 1; x++, i++) b[i] = ((a[i - 1] + a[i + 1] + a[i - gw] + a[i + gw]) * 0.5 - b[i]) * damp; }
-    this.a = b; this.b = a;
+    this.a = b; this.b = a; this.dirty = true;
   },
-  grad(x, y) {
-    const { gw, gh, a } = this, ix = clamp(Math.round(x / this.cell + 1), 1, gw - 2), iy = clamp(Math.round(y / this.cell + 1), 1, gh - 2), i = iy * gw + ix;
-    return [a[i + 1] - a[i - 1], a[i + gw] - a[i - gw]];
+  gradAt(x, y) {   // writes GX, GY
+    const gw = this.gw, a = this.a, ix = clamp(Math.round(x / this.cell + 1), 1, gw - 2), iy = clamp(Math.round(y / this.cell + 1), 1, this.gh - 2), i = iy * gw + ix;
+    GX = a[i + 1] - a[i - 1]; GY = a[i + gw] - a[i - gw];
   },
-  upload() { gl.bindTexture(gl.TEXTURE_2D, this.tex); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.gw, this.gh, gl.RED, gl.FLOAT, this.a); }
+  upload() {   // only when the field actually advanced (120 Hz displays step every other frame)
+    if (!this.dirty) return; this.dirty = false;
+    // upload the central-difference gradient (RG) instead of the height: the shaders need one
+    // bilinear tap per pixel instead of four (bilinear filtering commutes with the difference)
+    const { a, g, gw, gh } = this;
+    for (let y = 1; y < gh - 1; y++) { let i = y * gw + 1; for (let x = 1; x < gw - 1; x++, i++) { g[i * 2] = a[i + 1] - a[i - 1]; g[i * 2 + 1] = a[i + gw] - a[i - gw]; } }
+    gl.bindTexture(gl.TEXTURE_2D, this.tex); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gw, gh, gl.RG, gl.FLOAT, g);
+  }
 };
 
 /* =====================================================================
@@ -657,7 +671,7 @@ const rip = {
    ===================================================================== */
 let time = 0;
 const koi = [], minnows = [], pads = [], flowers = [], petals = [], food = [];
-const flow = (x, y) => [Math.sin(y * 0.003 + time * 0.05) * 4 + 2, Math.cos(x * 0.0027 - time * 0.04) * 4];
+function flowAt(x, y) { FX = Math.sin(y * 0.003 + time * 0.05) * 4 + 2; FY = Math.cos(x * 0.0027 - time * 0.04) * 4; }   // writes FX, FY
 
 class Koi {
   constructor(i) {
@@ -699,7 +713,7 @@ class Koi {
     let best = null, bc = Infinity; const hx = this.px[0], hy = this.py[0], diag = Math.hypot(W, H);
     for (const f of food) {
       if (!f.landed || f.gone) continue;
-      const d = Math.hypot(f.x - hx, f.y - hy);
+      const ex = f.x - hx, ey = f.y - hy, d = Math.sqrt(ex * ex + ey * ey);
       if (f.age < this.reaction + d / diag * 1.5) continue;
       const c = d * (1 + Math.abs(wrapA(Math.atan2(f.y - hy, f.x - hx) - this.heading)) * 0.25);
       if (c < bc) { bc = c; best = f; }
@@ -714,7 +728,8 @@ class Koi {
     const chasing = !!this.target;
     // Navigation: swim towards a waypoint (absolute goal), so paths are mostly straight
     // with purposeful turns, instead of a heading-relative wander that drifts into circles.
-    if ((this.wpT -= dt) <= 0 || Math.hypot(this.wx - hx, this.wy - hy) < L * 0.9) this.pickWaypoint();
+    const wdx = this.wx - hx, wdy = this.wy - hy;
+    if ((this.wpT -= dt) <= 0 || wdx * wdx + wdy * wdy < L * L * 0.81) this.pickWaypoint();
     // zero-mean meander: a gentle S-weave around the goal line, never a sustained turn
     const meander = Math.sin(time * this.w1 + this.s1) * 0.14 + Math.sin(time * this.w2 + this.s2) * 0.06;
     const wa = Math.atan2(this.wy - hy, this.wx - hx) + meander;
@@ -729,14 +744,14 @@ class Koi {
     // separation from other koi
     for (const o of koi) {
       if (o === this) continue;
-      for (const j of [0, 5, 10]) {
+      for (let j = 0; j <= 10; j += 5) {
         const ex = hx - o.px[j], ey = hy - o.py[j], d2 = ex * ex + ey * ey, rr = (L + o.L) * 0.36;
         if (d2 < rr * rr && d2 > 1e-3) { const d = Math.sqrt(d2), w = (1 - d / rr) * (1.15 - Math.abs(this.depth - o.depth)) * (chasing ? 0.35 : 1.3); ax += ex / d * w; ay += ey / d * w; }
       }
     }
     let tSpeed = this.cruise;
     if (chasing) {
-      const ex = this.target.x - hx, ey = this.target.y - hy, d = Math.hypot(ex, ey) || 1;
+      const ex = this.target.x - hx, ey = this.target.y - hy, d = Math.sqrt(ex * ex + ey * ey) || 1;
       ax = ax * 0.25 + ex / d * 2.4; ay = ay * 0.25 + ey / d * 2.4;
       tSpeed = Math.min(L * 1.3, L * 0.35 + d * 1.3);
       // if the pellet is beside/behind and close, brake and pivot instead of orbiting it
@@ -772,11 +787,13 @@ class Koi {
     // eating
     this.gulp = Math.max(0, this.gulp - dt); this.eatCd -= dt;
     const sx = px[0] + Math.cos(this.heading) * L * 0.02, sy = py[0] + Math.sin(this.heading) * L * 0.02;
-    for (const f of food) {
+    const r1 = L * 0.32, r1s = r1 * r1, r2s = L * L * 0.01;
+    if (this.depth < 0.4) for (const f of food) {
       if (f.gone || !f.landed) continue;
-      const ex = sx - f.x, ey = sy - f.y, d = Math.hypot(ex, ey);
-      if (d < L * 0.32 && this.depth < 0.35) { f.vx += ex * dt * 5; f.vy += ey * dt * 5; }   // suction
-      if (d < L * 0.1 && this.eatCd <= 0 && this.depth < 0.4) {
+      const ex = sx - f.x, ey = sy - f.y, d2 = ex * ex + ey * ey;
+      if (d2 >= r1s) continue;
+      if (this.depth < 0.35) { f.vx += ex * dt * 5; f.vy += ey * dt * 5; }   // suction
+      if (d2 < r2s && this.eatCd <= 0) {
         f.gone = true; this.eatCd = 0.18; this.gulp = 0.35;
         rip.drop(sx, sy, 2.2, 0.7); audio.plop(sx, 'gulp', L / baseLen);
         if (f === this.target) { this.target = null; this.retarget = 0.05; }
@@ -818,14 +835,15 @@ class Minnow {
     const m = L * 3;
     if (x < m) ax += (m - x) * 7; if (x > W - m) ax -= (x - (W - m)) * 7;
     if (y < m) ay += (m - y) * 7; if (y > H - m) ay -= (y - (H - m)) * 7;
-    for (const k of koi) for (const j of [0, 6]) {
-      const dx = x - k.px[j], dy = y - k.py[j], d = Math.hypot(dx, dy), r = k.L * 0.55;
-      if (d < r && d > 0.01) { ax += dx / d * (1 - d / r) * L * 45; ay += dy / d * (1 - d / r) * L * 45; this.burst = 0.5; }
+    for (const k of koi) for (let j = 0; j <= 6; j += 6) {
+      const dx = x - k.px[j], dy = y - k.py[j], d2 = dx * dx + dy * dy, r = k.L * 0.55;
+      if (d2 < r * r && d2 > 1e-4) { const d = Math.sqrt(d2); ax += dx / d * (1 - d / r) * L * 45; ay += dy / d * (1 - d / r) * L * 45; this.burst = 0.5; }
     }
     let feeding = false;
     if (food.length) {
-      let best = null, bd = L * 30;
-      for (const f of food) { if (f.gone || !f.landed) continue; const d = Math.hypot(f.x - x, f.y - y); if (d < bd) { bd = d; best = f; } }
+      let best = null, bd = L * L * 900;
+      for (const f of food) { if (f.gone || !f.landed) continue; const ex = f.x - x, ey = f.y - y, d2 = ex * ex + ey * ey; if (d2 < bd) { bd = d2; best = f; } }
+      bd = Math.sqrt(bd);
       if (best) {
         feeding = true; ax += (best.x - x) / (bd || 1) * L * 16; ay += (best.y - y) / (bd || 1) * L * 16;
         this.nib -= dt;
@@ -837,7 +855,7 @@ class Minnow {
     }
     this.burst = Math.max(0, this.burst - dt);
     this.vx += ax * dt; this.vy += ay * dt;
-    let sp = Math.hypot(this.vx, this.vy);
+    let sp = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
     const maxS = L * (feeding ? 4.2 : 2.4) * (this.burst > 0 ? 1.7 : 1), minS = L * 0.5;
     if (sp > maxS) { this.vx *= maxS / sp; this.vy *= maxS / sp; sp = maxS; } else if (sp < minS) { this.vx *= minS / (sp || 1); this.vy *= minS / (sp || 1); sp = minS; }
     this.px[0] += this.vx * dt; this.py[0] += this.vy * dt;
@@ -911,26 +929,30 @@ function update(dt) {
   for (const k of koi) k.update(dt);
   for (const m of minnows) m.update(dt);
   const fsize = clamp(baseLen * 0.045, 4, 9);
-  for (let i = food.length - 1; i >= 0; i--) {
+  let fw = 0;
+  for (let i = 0; i < food.length; i++) {
     const f = food[i];
-    if (f.gone) { food.splice(i, 1); continue; }
+    if (f.gone || f.age > 70) { f.gone = true; continue; }
+    food[fw++] = f;
     if (!f.landed) { f.delay -= dt; if (f.delay <= 0) { f.landed = true; rip.drop(f.x, f.y, 2.4, 0.8); audio.plop(f.x, 'pellet'); } continue; }
     f.age += dt;
-    const [gx, gy] = rip.grad(f.x, f.y), [fx, fy] = flow(f.x, f.y);
-    f.vx += (fx - gx * 260) * dt; f.vy += (fy - gy * 260) * dt;
-    for (const p of pads) { const dx = f.x - p.x, dy = f.y - p.y, d = Math.hypot(dx, dy); if (d < p.r * 0.95 && d > 0.01) { f.vx += dx / d * 40 * dt; f.vy += dy / d * 40 * dt; } }
+    rip.gradAt(f.x, f.y); flowAt(f.x, f.y);
+    f.vx += (FX - GX * 260) * dt; f.vy += (FY - GY * 260) * dt;
+    for (const p of pads) { const dx = f.x - p.x, dy = f.y - p.y, d2 = dx * dx + dy * dy, rr = p.r * 0.95; if (d2 < rr * rr && d2 > 1e-4) { const d = Math.sqrt(d2); f.vx += dx / d * 40 * dt; f.vy += dy / d * 40 * dt; } }
     const damp = Math.exp(-1.6 * dt); f.vx *= damp; f.vy *= damp;
     f.x = clamp(f.x + f.vx * dt, fsize, W - fsize); f.y = clamp(f.y + f.vy * dt, fsize, H - fsize);
     f.rot += f.vx * 0.002;
-    if (f.age > 70) food.splice(i, 1);
   }
+  food.length = fw;
   for (const p of pads) {
-    const [gx, gy] = rip.grad(p.x, p.y), [fx, fy] = flow(p.x, p.y);
-    p.vx += ((p.ax - p.x) * 0.25 - gx * 120 + fx * 0.15) * dt; p.vy += ((p.ay - p.y) * 0.25 - gy * 120 + fy * 0.15) * dt;
+    rip.gradAt(p.x, p.y); flowAt(p.x, p.y); const gx = GX, gy = GY;
+    p.vx += ((p.ax - p.x) * 0.25 - gx * 120 + FX * 0.15) * dt; p.vy += ((p.ay - p.y) * 0.25 - gy * 120 + FY * 0.15) * dt;
     for (const q of pads) {
       if (q === p) continue;
-      const dx = p.x - q.x, dy = p.y - q.y, d = Math.hypot(dx, dy), o = (p.r + q.r) * 0.9 - d;
-      if (o > 0 && d > 0.01) { p.vx += dx / d * o * 0.8 * dt; p.vy += dy / d * o * 0.8 * dt; }
+      const dx = p.x - q.x, dy = p.y - q.y, d2 = dx * dx + dy * dy, rr = (p.r + q.r) * 0.9;
+      if (d2 >= rr * rr || d2 < 1e-4) continue;
+      const d = Math.sqrt(d2), o = rr - d;
+      p.vx += dx / d * o * 0.8 * dt; p.vy += dy / d * o * 0.8 * dt;
     }
     const damp = Math.exp(-0.9 * dt); p.vx *= damp; p.vy *= damp;
     p.x += p.vx * dt; p.y += p.vy * dt;
@@ -941,14 +963,14 @@ function update(dt) {
       const p = pads[f.pad], c = Math.cos(p.rot), s = Math.sin(p.rot);
       f.x = p.x + f.ox * c - f.oy * s; f.y = p.y + f.ox * s + f.oy * c;
     } else {
-      const [gx, gy] = rip.grad(f.x, f.y), [fx, fy] = flow(f.x, f.y);
-      f.vx += (fx * 0.2 - gx * 100) * dt; f.vy += (fy * 0.2 - gy * 100) * dt; f.vx *= Math.exp(-dt); f.vy *= Math.exp(-dt);
+      rip.gradAt(f.x, f.y); flowAt(f.x, f.y);
+      f.vx += (FX * 0.2 - GX * 100) * dt; f.vy += (FY * 0.2 - GY * 100) * dt; f.vx *= Math.exp(-dt); f.vy *= Math.exp(-dt);
       f.x = clamp(f.x + f.vx * dt, f.r, W - f.r); f.y = clamp(f.y + f.vy * dt, f.r, H - f.r);
     }
   }
   for (const p of petals) {
-    const [gx, gy] = rip.grad(p.x, p.y), [fx, fy] = flow(p.x, p.y);
-    p.vx += (fx * 1.5 - gx * 250 - p.vx) * dt; p.vy += (fy * 1.5 - gy * 250 - p.vy) * dt;
+    rip.gradAt(p.x, p.y); flowAt(p.x, p.y);
+    p.vx += (FX * 1.5 - GX * 250 - p.vx) * dt; p.vy += (FY * 1.5 - GY * 250 - p.vy) * dt;
     p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
     const m = p.s * 2;
     if (p.x < -m) p.x = W + m; if (p.x > W + m) p.x = -m; if (p.y < -m) p.y = H + m; if (p.y > H + m) p.y = -m;
@@ -973,8 +995,10 @@ const VS_FULL = `#version 300 es
 out vec2 vUv; void main(){ vec2 p=vec2((gl_VertexID<<1)&2, gl_VertexID&2); vUv=p; gl_Position=vec4(p*2.0-1.0,0.0,1.0); }`;
 const FS_COMP = `#version 300 es
 precision highp float;
-uniform sampler2D uFish, uSurf, uRip, uFloor; uniform vec2 uFloorOff;
-uniform vec2 uRes; uniform float uTime, uMode, uScale, uCell; uniform vec4 uRipMap;
+uniform sampler2D uFish, uSurf, uRip, uFloor, uLight; uniform vec2 uFloorOff;
+uniform vec2 uRes; uniform float uTime, uMode, uScale; uniform vec4 uRipMap;
+// dynamic resolution: fish/surface/light targets are drawn into a sub-rectangle of their texture
+uniform vec2 uVp, uVh, uLp, uLh; uniform float uLodB;
 in vec2 vUv; out vec4 o;
 float h21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
 vec2 h22(vec2 p){ float n=h21(p); return vec2(n, h21(p+n+17.3)); }
@@ -1049,36 +1073,56 @@ vec3 pondFloor(vec2 p){
   col*=dif*ao;
   col*=0.85+0.3*fbm(p/(70.0*sc)+3.0);
   return col; }
-float rh(vec2 p){ return texture(uRip, p*uRipMap.xy+uRipMap.zw).r; }
+vec2 rg(vec2 p){ return texture(uRip, p*uRipMap.xy+uRipMap.zw).rg; }   // ripple gradient (precomputed per cell)
+vec2 VP(vec2 u){ return clamp(u, uVh, 1.0-uVh)*uVp; }   // screen uv -> render-target uv
+vec4 litS(vec2 u){ return texture(uLight, clamp(u, uLh, 1.0-uLh)*uLp); }
 void main(){
   vec2 uv=vUv, p=vec2(uv.x,1.0-uv.y)*uRes; float t=uTime;
 #ifdef FLOOR_PASS
-  o=vec4(pondFloor(p+uFloorOff),1.0); return;
+  // static layers, rendered once per resize / new pond / style change
+  if(uMode<0.5){ o=vec4(pondFloor(p+uFloorOff),1.0); return; }
+  vec3 paper=vec3(0.945,0.915,0.848);
+  float fib=noise(p*vec2(0.35,0.04))*noise(p*vec2(0.05,0.4));
+  paper*=0.985+0.035*fbm(p*0.08)-0.04*fib;
+  paper*=1.0-0.07*smoothstep(0.55,0.85,fbm(p/(380.0*uScale)+3.0));
+  o=vec4(paper,1.0); return;
 #endif
-  float c=uCell;
-  vec2 grad=vec2(rh(p+vec2(c,0))-rh(p-vec2(c,0)), rh(p+vec2(0,c))-rh(p-vec2(0,c)));
+  vec2 grad=rg(p);
   vec2 amb=vec2(sin(p.x*0.021/uScale+t*0.8+sin(p.y*0.013/uScale+t*0.35)*2.0), cos(p.y*0.018/uScale-t*0.7+sin(p.x*0.011/uScale-t*0.25)*2.0))*0.03;
   vec2 g=grad+amb;
   vec2 off=g*26.0*uScale; vec2 offUv=vec2(off.x,-off.y)/uRes;
-  vec2 v2=uv-0.5; float vig=dot(v2*vec2(uRes.x/max(uRes.x,uRes.y), uRes.y/max(uRes.x,uRes.y)), v2)*2.2;
   vec2 L1=vec2(20.0,30.0)*uScale/uRes*vec2(1,-1), L2=vec2(36.0,52.0)*uScale/uRes*vec2(1,-1), L3=vec2(12.0,18.0)*uScale/uRes*vec2(1,-1);
-  vec3 col;
+#ifdef LIGHT_PASS
+  // Everything low-frequency runs here at half resolution: caustics, sun dapple and the
+  // blurred fish / leaf shadows (real); drifting wash and soft shadows (ink).
   if(uMode<0.5){
-    vec2 pf=p+off*1.6;
-    vec3 fl=texture(uFloor, uv+offUv*1.6).rgb;   // pre-rendered bed, refracted
-    vec2 cuv=pf/(360.0*uScale);
+    vec2 cuv=(p+off*1.6)/(360.0*uScale);
     float ca=caustic(cuv+g*0.15, t*0.4)*0.6+caustic(cuv*1.37+vec2(0.31,0.17), t*0.33+2.0)*0.6;
     float n=fbm(p/(420.0*uScale)+vec2(t*0.012,t*0.007)), n2=noise(p/(90.0*uScale)+t*0.05);
     float dap=mix(0.6,1.0,smoothstep(0.38,0.62,n+(n2-0.5)*0.2));
-    float sf=textureLod(uFish, uv+offUv*1.6-L1, 2.6).a;
-    float ssF=textureLod(uSurf, uv+offUv*1.6-L2, 3.6).a;
-    float ssK=textureLod(uSurf, uv+offUv*0.6-L3, 2.6).a;
+    float sf=textureLod(uFish, VP(uv+offUv*1.6-L1), 2.6+uLodB).a;
+    float ssF=textureLod(uSurf, VP(uv+offUv*1.6-L2), 3.6+uLodB).a;
+    float ssK=textureLod(uSurf, VP(uv+offUv*0.6-L3), 2.6+uLodB).a;
     float lightF=(1.0-0.72*sf)*(1.0-0.7*ssF)*dap;
+    float lightK=(1.0-0.5*ssK)*mix(0.72,1.0,dap);
+    o=vec4(ca/(1.0+ca), dap, lightF, lightK);
+  } else {
+    float w=fbm(p/(520.0*uScale)+vec2(t*0.006,-t*0.004));
+    float sf=textureLod(uFish, VP(uv+offUv-L1), 3.0+uLodB).a, ss=textureLod(uSurf, VP(uv+offUv-L2), 3.6+uLodB).a;
+    o=vec4(0.0, 1.0-0.08*sf-0.1*ss, smoothstep(0.5,0.85,w), 1.0);
+  }
+  return;
+#endif
+  vec4 lt=litS(uv);
+  vec2 v2=uv-0.5; float vig=dot(v2*vec2(uRes.x/max(uRes.x,uRes.y), uRes.y/max(uRes.x,uRes.y)), v2)*2.2;
+  vec3 col;
+  if(uMode<0.5){
+    vec3 fl=texture(uFloor, uv+offUv*1.6).rgb;   // pre-rendered bed, refracted
+    float ca=lt.r/max(1.0-lt.r,0.004), dap=lt.g, lightF=lt.b, lightK=lt.a;
     col=fl*(0.42+0.58*lightF)+vec3(0.72,0.95,0.85)*ca*lightF*0.5;
     vec3 deep=vec3(0.03,0.14,0.13);
     col=mix(col, deep, 0.58+0.2*clamp(vig,0.0,1.0));
-    vec4 f=texture(uFish, uv+offUv*0.6);
-    float lightK=(1.0-0.5*ssK)*mix(0.72,1.0,dap);
+    vec4 f=texture(uFish, VP(uv+offUv*0.6));
     vec3 fc=f.rgb*(0.76+0.36*lightK)+f.a*ca*0.16*lightK*vec3(0.9,1.0,0.95);
     col=col*(1.0-f.a)+fc;
     col=mix(col, vec3(0.07,0.2,0.2), 0.06);
@@ -1088,29 +1132,28 @@ void main(){
     vec3 sky=mix(vec3(0.16,0.24,0.2), vec3(0.6,0.74,0.78), dap);
     col+=sky*(0.04+min(length(g)*0.9,0.25));
     col+=vec3(1.0,0.97,0.9)*spec*dap;
-    vec4 s=texture(uSurf, uv+offUv*0.06);
+    vec4 s=texture(uSurf, VP(uv+offUv*0.06));
     col=col*(1.0-s.a)+s.rgb*mix(0.74,1.06,dap);
     col*=1.0-0.38*pow(clamp(vig,0.0,1.0),1.4);
   } else {
-    vec3 paper=vec3(0.945,0.915,0.848);
-    float fib=noise(p*vec2(0.35,0.04))*noise(p*vec2(0.05,0.4));
-    paper*=0.985+0.035*fbm(p*0.08)-0.04*fib;
-    paper*=1.0-0.07*smoothstep(0.55,0.85,fbm(p/(380.0*uScale)+3.0));
-    float w=fbm(p/(520.0*uScale)+vec2(t*0.006,-t*0.004));
-    paper=mix(paper, paper*vec3(0.83,0.87,0.87), smoothstep(0.5,0.85,w)*0.55);
+    vec3 paper=texture(uFloor, uv).rgb;   // static paper, cached
+    paper=mix(paper, paper*vec3(0.83,0.87,0.87), lt.b*0.55);
     float rl=length(grad);
     paper*=1.0-smoothstep(0.03,0.22,rl)*0.32;
-    float sf=textureLod(uFish, uv+offUv-L1, 3.0).a, ss=textureLod(uSurf, uv+offUv-L2, 3.6).a;
-    paper*=1.0-0.08*sf-0.1*ss;
-    vec4 f=texture(uFish, uv+offUv*0.5);
+    paper*=lt.g;
+    vec4 f=texture(uFish, VP(uv+offUv*0.5));
     col=paper*(1.0-f.a+f.rgb);
-    vec4 s=texture(uSurf, uv);
+    vec4 s=texture(uSurf, VP(uv));
     col*=1.0-s.a+s.rgb;
     col*=mix(vec3(1.0), vec3(0.86,0.8,0.7), smoothstep(0.25,0.9,vig));
   }
   col+=(h21(p+fract(t))-0.5)/255.0;
   o=vec4(col,1.0);
 }`;
+const FS_BLIT = `#version 300 es
+precision mediump float;
+uniform sampler2D uTex; uniform vec2 uVp, uVh; in vec2 vUv; out vec4 o;
+void main(){ o=texture(uTex, clamp(vUv, uVh, 1.0-uVh)*uVp); }`;
 /* ---- 3D koi (realistic mode) ------------------------------------------------
    Each koi body is a real 3D surface: a static (u, t) grid is skinned on the GPU
    along the animated spine. Cross-sections are ellipses (width from the top-down
@@ -1172,16 +1215,22 @@ void main(){
   vec2 sp=vSurf; float t=vT1;
   // ---------- overlapping scales: the most anterior scale covering a point is on top
   float ss=uScaleType>1.5 ? 12.5 : 8.6, cx=ss*0.72, rr=ss*0.7;
-  float bestX=1e9, occ=9.0, bid=0.5; vec2 bd=vec2(0.0), bc=sp;
-  float ci=floor(sp.x/cx);
-  for(int di=-1;di<=1;di++){ float i=ci+float(di), off=mod(i,2.0)*0.5*ss, x=(i+0.5)*cx, j0=floor((sp.y-off)/ss);
-    for(int dj=-1;dj<=1;dj++){ float j=j0+float(dj); vec2 c=vec2(x,(j+0.5)*ss+off), d=(sp-c)/rr; float r2=dot(d,d);
-      if(r2<1.0 && x<bestX){ bestX=x; bd=d; bc=c; bid=h21(vec2(i,j)+uSeed); } } }
-  for(int di=-1;di<=0;di++){ float i=ci+float(di), off=mod(i,2.0)*0.5*ss, x=(i+0.5)*cx, j0=floor((sp.y-off)/ss);
-    if(x>=bestX) continue;
-    for(int dj=-1;dj<=1;dj++){ float j=j0+float(dj); vec2 c=vec2(x,(j+0.5)*ss+off), d=(sp-c)/rr; occ=min(occ,dot(d,d)); } }
-  float r2=dot(bd,bd);
+  float occ=9.0, bid=0.5; vec2 bd=vec2(0.0), bc=sp;
   float sm=smoothstep(PADX+0.19*LEN,PADX+0.25*LEN,sp.x)*(1.0-smoothstep(PADX+0.975*LEN,PADX+1.0*LEN,sp.x));
+  if(sm>0.0){   // no scales on the head: skip the search there
+    // single pass over the 3x3 candidates: columns run front to back, the first covering
+    // scale wins; 'occ' is the nearest scale edge from the columns in front of it
+    float ci=floor(sp.x/cx); bool found=false;
+    for(int di=-1;di<=1;di++){
+      if(found) break;
+      float i=ci+float(di), off=mod(i,2.0)*0.5*ss, x=(i+0.5)*cx, j0=floor((sp.y-off)/ss), cm=9.0;
+      for(int dj=-1;dj<=1;dj++){ float j=j0+float(dj); vec2 c=vec2(x,(j+0.5)*ss+off), d=(sp-c)/rr; float r2=dot(d,d);
+        if(r2<1.0 && !found){ found=true; bd=d; bc=c; bid=h21(vec2(i,j)+uSeed); }
+        cm=min(cm,r2); }
+      if(!found && di<=0) occ=min(occ,cm);
+    }
+  }
+  float r2=dot(bd,bd);
   if(uScaleType>1.5){ float tn=abs(t); sm*=max(1.0-smoothstep(0.1,0.2,tn), 1.0-smoothstep(0.07,0.15,abs(tn-0.68))); }
   // ---------- pigment (pattern edges follow the scales: kiwa)
   vec3 aF=texA(sp), aC=texC(bc+vec2(rr*0.2,0.0));
@@ -1245,7 +1294,11 @@ function shader(type, src) { const s = gl.createShader(type); gl.shaderSource(s,
 function program(vs, fs) { const p = gl.createProgram(); gl.attachShader(p, shader(gl.VERTEX_SHADER, vs)); gl.attachShader(p, shader(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; }
 const progSprite = program(VS_SPRITE, FS_SPRITE), progComp = program(VS_FULL, FS_COMP), progKoi = program(VS_KOI, FS_KOI);
 const progFloor = program(VS_FULL, FS_COMP.replace('#version 300 es', '#version 300 es\n#define FLOOR_PASS'));
-const uF = { res: gl.getUniformLocation(progFloor, 'uRes'), scale: gl.getUniformLocation(progFloor, 'uScale'), off: gl.getUniformLocation(progFloor, 'uFloorOff') };
+const progLight = program(VS_FULL, FS_COMP.replace('#version 300 es', '#version 300 es\n#define LIGHT_PASS'));
+const progBlit = program(VS_FULL, FS_BLIT);
+const uF = { res: gl.getUniformLocation(progFloor, 'uRes'), scale: gl.getUniformLocation(progFloor, 'uScale'), off: gl.getUniformLocation(progFloor, 'uFloorOff'), mode: gl.getUniformLocation(progFloor, 'uMode') };
+const uL = {}; for (const n of ['uRip', 'uFish', 'uSurf', 'uRes', 'uTime', 'uMode', 'uScale', 'uRipMap', 'uVp', 'uVh', 'uLodB']) uL[n] = gl.getUniformLocation(progLight, n);
+const uB = { tex: gl.getUniformLocation(progBlit, 'uTex'), vp: gl.getUniformLocation(progBlit, 'uVp'), vh: gl.getUniformLocation(progBlit, 'uVh') };
 let floorDirty = true;
 const uK = {}; for (const n of ['uRes', 'uSp', 'uKK', 'uGirth', 'uPx', 'uTex', 'uSlot', 'uDepth', 'uMetal', 'uScaleType', 'uSeed', 'uNet', 'uNetCol', 'uGlint']) uK[n] = gl.getUniformLocation(progKoi, n);
 // static koi body grid: KR rings along the body (denser at the head), KM vertices across the back
@@ -1263,7 +1316,7 @@ let koiIdxN = 0;
   gl.bindVertexArray(null);
 }
 const uS = { res: gl.getUniformLocation(progSprite, 'uRes'), tex: gl.getUniformLocation(progSprite, 'uTex') };
-const uC = {}; for (const n of ['uFish', 'uSurf', 'uRip', 'uFloor', 'uRes', 'uTime', 'uMode', 'uScale', 'uCell', 'uRipMap']) uC[n] = gl.getUniformLocation(progComp, n);
+const uC = {}; for (const n of ['uFish', 'uSurf', 'uRip', 'uFloor', 'uLight', 'uRes', 'uTime', 'uMode', 'uScale', 'uRipMap', 'uVp', 'uVh', 'uLp', 'uLh']) uC[n] = gl.getUniformLocation(progComp, n);
 const emptyVao = gl.createVertexArray();
 
 // dynamic vertex batch
@@ -1307,13 +1360,13 @@ function renderSpine(f, A, waveK, headAmp) {
   const N = f.N;
   for (let i = 0; i < N; i++) {
     const a = Math.max(0, i - 1), b = Math.min(N - 1, i + 1);
-    let tx = f.px[a] - f.px[b], ty = f.py[a] - f.py[b]; const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l;
+    let tx = f.px[a] - f.px[b], ty = f.py[a] - f.py[b]; const l = Math.sqrt(tx * tx + ty * ty) || 1; tx /= l; ty /= l;
     const u = i / (N - 1), off = A * (headAmp + (1 - headAmp) * u * u) * Math.sin(f.phase - u * waveK);
     f.rx[i] = f.px[i] - ty * off; f.ry[i] = f.py[i] + tx * off;
   }
   for (let i = 0; i < N; i++) {
     const a = Math.max(0, i - 1), b = Math.min(N - 1, i + 1);
-    let tx = f.rx[a] - f.rx[b], ty = f.ry[a] - f.ry[b]; const l = Math.hypot(tx, ty) || 1; f.tx[i] = tx / l; f.ty[i] = ty / l;
+    let tx = f.rx[a] - f.rx[b], ty = f.ry[a] - f.ry[b]; const l = Math.sqrt(tx * tx + ty * ty) || 1; f.tx[i] = tx / l; f.ty[i] = ty / l;
   }
 }
 function setDepthTint(depth) {
@@ -1327,10 +1380,11 @@ function drawKoi(k, part = 0) {
   setDepthTint(k.depth); alpha = 1;
   if (part === 2) { drawDorsal(k); return; }
   // pectoral + pelvic fins
-  const fins = [[3, d.butterfly ? 0.3 : 0.2, 0.95 - 0.45 * sf, 0.28, 0.78], [7, d.butterfly ? 0.17 : 0.12, 0.6 - 0.2 * sf, 0.12, 0.6]];
-  for (const [i, lenF, base, amp, rootK] of fins) {
+  for (let fi = 0; fi < 2; fi++) {
+    const i = fi ? 7 : 3, lenF = fi ? (d.butterfly ? 0.17 : 0.12) : (d.butterfly ? 0.3 : 0.2);
+    const base = fi ? 0.6 - 0.2 * sf : 0.95 - 0.45 * sf, amp = fi ? 0.12 : 0.28, rootK = fi ? 0.6 : 0.78;
     const u = i / (N - 1), hwB = hwProfile(u) * HALF * kk * k.girth * rootK, nx = -ty[i], ny = tx[i];
-    for (const side of [1, -1]) {
+    for (let side = 1; side >= -1; side -= 2) {
       const th = base + amp * Math.sin(k.finPhase + side * 1.3) * (1 - 0.6 * sf) + side * clamp(k.turnRate, -1.2, 1.2) * 0.25;
       const c = Math.cos(th), sn = Math.sin(th) * side;
       const dx = -tx[i] * c + nx * sn, dy = -ty[i] * c + ny * sn;
@@ -1374,7 +1428,7 @@ function drawKoiBody(k) {
   for (let i = 0; i < 14; i++) { spBuf[i * 2] = k.rx[i]; spBuf[i * 2 + 1] = k.ry[i]; }
   gl.useProgram(progKoi);
   gl.uniform2f(uK.uRes, W, H); gl.uniform2fv(uK.uSp, spBuf);
-  gl.uniform1f(uK.uKK, k.L / LEN); gl.uniform1f(uK.uGirth, k.girth); gl.uniform1f(uK.uPx, cw / W);
+  gl.uniform1f(uK.uKK, k.L / LEN); gl.uniform1f(uK.uGirth, k.girth); gl.uniform1f(uK.uPx, rw / W);
   gl.uniform1i(uK.uTex, 0); gl.uniform2f(uK.uSlot, s.x, s.y);
   gl.uniform1f(uK.uDepth, k.depth); gl.uniform1f(uK.uMetal, d.metallic ? 1 : 0);
   gl.uniform1f(uK.uScaleType, d.scales === 'doitsu' ? 2 : d.scales === 'net' ? 1 : 0);
@@ -1392,6 +1446,83 @@ function drawMinnow(m) {
   strip(m.N, SL.minnow[m.type]);
 }
 
+/* ---------------- frame pacing: fps meter + dynamic-resolution controller ----------------
+   Goal: never drop below 60 fps. Frame intervals are measured every frame; if frames start
+   missing the 60 Hz budget the render scale steps down within a few frames, and after a
+   stretch of clean frames it probes back up (backing off if the probe fails). Expensive
+   one-off events (atlas upload, pond-bed render, resize) are excluded via hold(). */
+const PIN = clamp(+new URLSearchParams(location.search).get('scale') || 0, 0, 1);   // debug: ?scale=0.6 pins the render scale
+const perf = {
+  q: PIN || 1, qMin: 0.5, ceil: 1, holdT: 0.5, slow: 0, simE: 0, gpuSkip: 0, okT: 0, stableT: 0, wait: 2, probeT: 99, vs: 16.7, gpu: 0, gpuN: 0,
+  // meter
+  n: 0, t: 0, worst: 0, cpu: 0, fps: 0, ms: 0, wMs: 0, cpuMs: 0, el: null,
+  hold(s) { this.holdT = Math.max(this.holdT, s); this.slow = 0; if (this.gpuN) this.gpuReset(); },
+  tick(ms, cpu, sim) {   // frame interval, main-thread frame time, simulation-only time (ms)
+    // ---- meter (published twice a second)
+    this.n++; this.t += ms; this.cpu += cpu; if (ms > this.worst) this.worst = ms;
+    this.simE = this.simE * 0.9 + sim * 0.1;   // pure JS sim time: GL calls can block when the GPU is saturated, so they don't count
+    if (this.t >= 500) {
+      this.fps = this.n * 1000 / this.t; this.ms = this.t / this.n; this.wMs = this.worst; this.cpuMs = this.cpu / this.n;
+      this.n = 0; this.t = 0; this.cpu = 0; this.worst = 0;
+      this.show();
+    }
+    // ---- controller
+    if (PIN) return;
+    if (ms > 250) { this.hold(0.5); return; }                    // tab switch / debugger / sleep
+    this.vs = Math.min(20, this.vs * 1.002 + 0.002, ms);          // ~display refresh interval (capped at 50 Hz)
+    if (this.holdT > 0) { this.holdT -= ms / 1000; return; }
+    const sec = ms / 1000, budget = Math.max(1000 / 60, this.vs) * 1.2;   // 20 ms at 60 Hz and 120 Hz
+    const gpuOk = this.gpuN > 3, gpuHi = 1000 / 60 * 0.82, gpuLo = 1000 / 60 * 0.68;   // GPU-timer thresholds (13.7 / 11.3 ms)
+    this.slow = this.slow * 0.88 + (ms > budget ? 0.12 : 0);
+    this.probeT += sec; this.stableT += sec;
+    if (this.slow > 0.2 && this.simE < 1000 / 60 * 0.8) {        // ~2 missed frames in the last ~10 (and not sim-bound: lower res wouldn't help)
+      if (this.probeT < 3) {                                      // the last step up was one too many: undo it, remember the ceiling
+        this.ceil = this.q * 0.99; this.wait = Math.min(this.wait * 2, 40); setScale(this.q / 1.05);
+      } else setScale(this.q * (ms > budget * 1.6 ? 0.82 : 0.9));
+      this.slow = 0; this.okT = 0; this.stableT = 0; this.holdT = 0.25; this.probeT = 99; this.gpuReset();
+    } else if (gpuOk && this.gpu > gpuHi && this.q > this.qMin) { // GPU near budget: step down before frames drop
+      setScale(this.q * clamp(Math.sqrt(gpuLo / this.gpu), 0.8, 0.97)); this.gpuReset(); this.holdT = 0.15; this.okT = 0; this.stableT = 0;
+    } else if (this.slow < 0.01 && this.q < 1) {
+      const next = Math.min(1, this.q * 1.05);
+      const room = gpuOk ? this.gpu * (next / this.q) ** 2 < gpuLo : next <= this.ceil;
+      if (room && (this.okT += sec) > (gpuOk ? 0.75 : this.wait)) { setScale(next); this.okT = 0; this.probeT = 0; this.holdT = 0.2; this.gpuReset(); }
+    } else this.okT = 0;
+    if (this.stableT > 8) { this.stableT = 0; this.ceil = Math.min(1, this.ceil * 1.05); this.wait = Math.max(2, this.wait * 0.5); }   // conditions change: let it probe again
+  },
+  gpuSample(msGpu) { if (this.gpuSkip > 0) { this.gpuSkip--; return; } this.gpu = this.gpuN ? this.gpu * 0.85 + msGpu * 0.15 : msGpu; this.gpuN++; },
+  gpuReset() { this.gpuN = 0; this.gpuSkip = gpuTimer.pending.length; },   // results in flight were measured at the old scale
+  show() {
+    if (!this.el) this.el = { box: document.getElementById('perf'), fps: document.getElementById('fps'), det: document.getElementById('perf-detail') };
+    window.__pondPerf = { fps: +this.fps.toFixed(1), ms: +this.ms.toFixed(2), worst: +this.wMs.toFixed(1), cpu: +this.cpuMs.toFixed(2), gpu: this.gpuN ? +this.gpu.toFixed(2) : null, scale: +this.q.toFixed(3), px: rw + 'x' + rh };
+    if (!this.el.box || !panel.classList.contains('open')) return;
+    const f = Math.round(this.fps);
+    this.el.fps.textContent = f;
+    this.el.det.textContent = `${this.ms.toFixed(1)} ms · max ${this.wMs.toFixed(0)} · cpu ${this.cpuMs.toFixed(1)}${this.gpuN ? ' · gpu ' + this.gpu.toFixed(1) : ''} · res ${Math.round(this.q * 100)}%`;
+    this.el.box.className = 'perf ' + (f >= 58 ? 'ok' : f >= 45 ? 'warn' : 'bad');
+  },
+};
+
+// GPU frame time, where the browser exposes timer queries (desktop Chrome / Edge): lets the
+// controller see headroom directly instead of waiting for missed frames.
+const gpuTimer = {
+  ext: gl.getExtension('EXT_disjoint_timer_query_webgl2'), pool: [], pending: [],
+  begin() {
+    if (!this.ext || this.pending.length > 4) return false;
+    const q = this.pool.pop() || gl.createQuery(); gl.beginQuery(this.ext.TIME_ELAPSED_EXT, q); this.cur = q; return true;
+  },
+  end() { gl.endQuery(this.ext.TIME_ELAPSED_EXT); this.pending.push(this.cur); },
+  poll() {
+    if (!this.ext) return;
+    while (this.pending.length) {
+      const q = this.pending[0];
+      if (!gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) break;
+      const disjoint = gl.getParameter(this.ext.GPU_DISJOINT_EXT), ns = gl.getQueryParameter(q, gl.QUERY_RESULT);
+      this.pending.shift(); this.pool.push(q);
+      if (!disjoint && ns > 0) perf.gpuSample(ns / 1e6);
+    }
+  },
+};
+
 /* ---------------- GL targets ---------------- */
 const atlasTex = gl.createTexture();
 function uploadAtlas() {
@@ -1402,60 +1533,90 @@ function uploadAtlas() {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.generateMipmap(gl.TEXTURE_2D);
-  atlasDirty = false;
+  atlasDirty = false; perf.hold(0.4);
 }
-function makeTarget(t, w, h) {
+function makeTarget(t, w, h, mips = true) {
   if (!t) t = { tex: gl.createTexture(), fb: gl.createFramebuffer() };
   gl.bindTexture(gl.TEXTURE_2D, t.tex);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mips ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.bindFramebuffer(gl.FRAMEBUFFER, t.fb);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t.tex, 0);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  t.w = w; t.h = h;
   return t;
 }
-let fishT = null, surfT = null, floorT = null, cw = 1, ch = 1, quality = 1;
+/* Dynamic resolution. Every target is allocated once at the full (canvas) size cw x ch;
+   each frame draws into a q-scaled sub-rectangle rw x rh and the result is upscaled to the
+   canvas. Changing q costs nothing (no reallocation, no pond-bed re-render), so the
+   controller in perf.tick() can react within a few frames. Light pass runs at half of that. */
+let fishT = null, surfT = null, floorT = null, lightT = null, compT = null;
+let cw = 1, ch = 1, rw = 1, rh = 1, lw = 1, lh = 1;
 const coarse = matchMedia('(pointer: coarse)').matches;
 function applyResolution() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2.5), maxPix = coarse ? 1.7e6 : 2.8e6;
-  const rs = Math.max(0.5, Math.min(dpr, Math.sqrt(maxPix / (W * H))) * quality);
+  const rs = Math.max(0.5, Math.min(dpr, Math.sqrt(maxPix / (W * H))));
   cw = Math.max(1, Math.round(W * rs)); ch = Math.max(1, Math.round(H * rs));
   canvas.width = cw; canvas.height = ch;
-  fishT = makeTarget(fishT, cw, ch); surfT = makeTarget(surfT, cw, ch); floorT = makeTarget(floorT, cw, ch); floorDirty = true;
+  perf.qMin = PIN || clamp(0.55 / rs, 0.3, 0.8);   // never below ~0.55 px per CSS px
+  fishT = makeTarget(fishT, cw, ch); surfT = makeTarget(surfT, cw, ch); floorT = makeTarget(floorT, cw, ch);
+  compT = makeTarget(compT, cw, ch, false); lightT = makeTarget(lightT, Math.ceil(cw / 2), Math.ceil(ch / 2), false);
+  floorDirty = true; setScale(perf.q); perf.hold(0.6);
 }
+function setScale(q) {
+  perf.q = q = clamp(q, perf.qMin, 1);
+  rw = Math.max(1, Math.round(cw * q)); rh = Math.max(1, Math.round(ch * q));
+  lw = Math.max(1, Math.ceil(rw / 2)); lh = Math.max(1, Math.ceil(rh / 2));
+}
+
+/* Sprite batching: geometry for a whole layer is uploaded once; koi bodies (separate
+   program) are interleaved via a command list so depth order is preserved. */
+const cmds = [], cmdKoi = []; let segStart = 0;
+function cutSprites() { if (vn > segStart) cmds.push(-1, segStart, vn - segStart); segStart = vn; }
 function beginTarget(target) {
-  gl.bindFramebuffer(gl.FRAMEBUFFER, target.fb); gl.viewport(0, 0, cw, ch);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, target.fb); gl.viewport(0, 0, rw, rh);
   gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, atlasTex);
+  cmds.length = 0; cmdKoi.length = 0; vn = 0; segStart = 0;
 }
-function drawSprites() {
-  if (!vn) return;
-  gl.useProgram(progSprite); gl.uniform2f(uS.res, W, H); gl.uniform1i(uS.tex, 0);
-  gl.bindVertexArray(vao); gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-  gl.bufferData(gl.ARRAY_BUFFER, vdata.subarray(0, vn * FL), gl.DYNAMIC_DRAW);
-  gl.drawArrays(gl.TRIANGLES, 0, vn); gl.bindVertexArray(null);
-  vn = 0;
+function endTarget(target) {
+  cutSprites();
+  if (vn) { gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, vdata.subarray(0, vn * FL), gl.STREAM_DRAW); }
+  let prog = null;
+  for (let i = 0; i < cmds.length; i += 3) {
+    if (cmds[i] < 0) {
+      if (prog !== progSprite) { prog = progSprite; gl.useProgram(progSprite); gl.uniform2f(uS.res, W, H); gl.uniform1i(uS.tex, 0); gl.bindVertexArray(vao); }
+      gl.drawArrays(gl.TRIANGLES, cmds[i + 1], cmds[i + 2]);
+    } else { prog = progKoi; drawKoiBody(cmdKoi[cmds[i]]); }
+  }
+  gl.bindVertexArray(null);
+  vn = 0; cmds.length = 0; cmdKoi.length = 0; segStart = 0;
+  gl.bindTexture(gl.TEXTURE_2D, target.tex); gl.generateMipmap(gl.TEXTURE_2D); gl.bindTexture(gl.TEXTURE_2D, atlasTex);
 }
-function endTarget(target) { drawSprites(); gl.bindTexture(gl.TEXTURE_2D, target.tex); gl.generateMipmap(gl.TEXTURE_2D); gl.bindTexture(gl.TEXTURE_2D, atlasTex); }
-function flushBatch(target) { beginTarget(target); endTarget(target); }
+function fullscreenPass() { gl.bindVertexArray(emptyVao); gl.drawArrays(gl.TRIANGLES, 0, 3); }
 const drawList = [];
 function render() {
+  gpuTimer.poll();
+  const timing = gpuTimer.begin();
   if (atlasDirty) uploadAtlas();
   rip.upload();
+  const ink = S.style === 'ink', mode = ink ? 1 : 0, tm = time % 1000;
+  const vpx = rw / cw, vpy = rh / ch, lodB = Math.log2(rw / cw);   // keep blur radii constant in CSS px
+  const rm0 = 1 / (rip.cell * rip.gw), rm1 = 1 / (rip.cell * rip.gh), rm2 = 1.5 / rip.gw, rm3 = 1.5 / rip.gh;
   gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   // ---- fish layer (sorted deep -> shallow)
   drawList.length = 0; for (const k of koi) drawList.push(k); for (const m of minnows) drawList.push(m);
   drawList.sort((a, b) => b.depth - a.depth);
-  const real = S.style !== 'ink';
   beginTarget(fishT);
   for (const f of drawList) {
     if (!(f instanceof Koi)) drawMinnow(f);
-    else if (!real) drawKoi(f);
-    else { drawKoi(f, 1); drawSprites(); drawKoiBody(f); drawKoi(f, 2); }
+    else if (ink) drawKoi(f);
+    else { drawKoi(f, 1); cutSprites(); cmds.push(cmdKoi.length, 0, 0); cmdKoi.push(f); drawKoi(f, 2); }
   }
   endTarget(fishT);
   // ---- surface layer
+  beginTarget(surfT);
   tint[3] = 0; alpha = 1;
   for (const p of pads) { const h = p.r * 128 / 118; sprite(SL.pad[p.v], p.x, p.y, h, h, p.rot); }
   const fs = clamp(baseLen * 0.045, 4, 9) * 12 / 7;
@@ -1468,29 +1629,51 @@ function render() {
   alpha = 1;
   for (const p of petals) { const s = p.v === 2 || p.v === 3 ? p.s * 1.3 : p.s; sprite(SL.petal[p.v], p.x, p.y, s, s, p.rot); }
   for (const f of flowers) { const h = f.r * 1.0, w = Math.sin(time * 0.6 + f.ph) * 0.05; sprite(SL.lotus[f.v], f.x, f.y, h, h, f.rot + w); }
-  flushBatch(surfT);
-  // ---- pond bed (static: re-rendered only on resize / new pond)
+  endTarget(surfT);
   gl.disable(gl.BLEND);
-  if (floorDirty && S.style !== 'ink') {
+  // ---- static layer: pond bed (real) or paper (ink); full canvas resolution, re-rendered only on resize / new pond / style
+  if (floorDirty) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, floorT.fb); gl.viewport(0, 0, cw, ch);
-    gl.useProgram(progFloor); gl.uniform2f(uF.res, W, H); gl.uniform1f(uF.scale, uScale);
+    gl.useProgram(progFloor); gl.uniform2f(uF.res, W, H); gl.uniform1f(uF.scale, uScale); gl.uniform1f(uF.mode, mode);
     gl.uniform2f(uF.off, (pondSeed % 4096) * 1.7, ((pondSeed >> 12) % 4096) * 1.3);
-    gl.bindVertexArray(emptyVao); gl.drawArrays(gl.TRIANGLES, 0, 3); gl.bindVertexArray(null);
+    fullscreenPass();
     gl.bindTexture(gl.TEXTURE_2D, floorT.tex); gl.generateMipmap(gl.TEXTURE_2D);
-    floorDirty = false;
+    floorDirty = false; perf.hold(0.6);
   }
-  // ---- composite
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, cw, ch);
+  // ---- light pass (half of render resolution): caustics + dapple / ink wash
+  gl.bindFramebuffer(gl.FRAMEBUFFER, lightT.fb); gl.viewport(0, 0, lw, lh);
+  gl.useProgram(progLight);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fishT.tex); gl.uniform1i(uL.uFish, 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, surfT.tex); gl.uniform1i(uL.uSurf, 1);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, rip.tex); gl.uniform1i(uL.uRip, 2);
+  gl.uniform2f(uL.uRes, W, H); gl.uniform1f(uL.uTime, tm); gl.uniform1f(uL.uMode, mode);
+  gl.uniform1f(uL.uScale, uScale); gl.uniform4f(uL.uRipMap, rm0, rm1, rm2, rm3);
+  gl.uniform2f(uL.uVp, vpx, vpy); gl.uniform2f(uL.uVh, 0.5 / rw, 0.5 / rh); gl.uniform1f(uL.uLodB, lodB);
+  fullscreenPass();
+  // ---- composite (into the scaled sub-rect, or straight to the canvas at full scale)
+  const direct = rw === cw && rh === ch;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, direct ? null : compT.fb); gl.viewport(0, 0, rw, rh);
   gl.useProgram(progComp);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fishT.tex); gl.uniform1i(uC.uFish, 0);
   gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, surfT.tex); gl.uniform1i(uC.uSurf, 1);
   gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, rip.tex); gl.uniform1i(uC.uRip, 2);
   gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, floorT.tex); gl.uniform1i(uC.uFloor, 3);
-  gl.uniform2f(uC.uRes, W, H); gl.uniform1f(uC.uTime, time % 1000); gl.uniform1f(uC.uMode, S.style === 'ink' ? 1 : 0);
-  gl.uniform1f(uC.uScale, uScale); gl.uniform1f(uC.uCell, rip.cell);
-  gl.uniform4f(uC.uRipMap, 1 / (rip.cell * rip.gw), 1 / (rip.cell * rip.gh), 1.5 / rip.gw, 1.5 / rip.gh);
-  gl.bindVertexArray(emptyVao); gl.drawArrays(gl.TRIANGLES, 0, 3); gl.bindVertexArray(null);
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, lightT.tex); gl.uniform1i(uC.uLight, 4);
+  gl.uniform2f(uC.uRes, W, H); gl.uniform1f(uC.uTime, tm); gl.uniform1f(uC.uMode, mode);
+  gl.uniform1f(uC.uScale, uScale); gl.uniform4f(uC.uRipMap, rm0, rm1, rm2, rm3);
+  gl.uniform2f(uC.uVp, vpx, vpy); gl.uniform2f(uC.uVh, 0.5 / rw, 0.5 / rh);
+  gl.uniform2f(uC.uLp, lw / lightT.w, lh / lightT.h); gl.uniform2f(uC.uLh, 0.5 / lw, 0.5 / lh);
+  fullscreenPass();
+  if (!direct) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, cw, ch);
+    gl.useProgram(progBlit);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, compT.tex); gl.uniform1i(uB.tex, 0);
+    gl.uniform2f(uB.vp, rw / cw, rh / ch); gl.uniform2f(uB.vh, 0.5 / rw, 0.5 / rh);
+    fullscreenPass();
+  }
+  gl.bindVertexArray(null);
   gl.activeTexture(gl.TEXTURE0);
+  if (timing) gpuTimer.end();
 }
 
 /* ---------------- resize ---------------- */
@@ -1582,7 +1765,7 @@ class Looper {
 }
 
 const audio = {
-  ctx: null, master: null, loopBus: null, plopBus: null, noise: null, loops: {}, recent: [], mv: 0, susT: 0,
+  ctx: null, master: null, loopBus: null, plopBus: null, noise: null, loops: {}, recent: new Float64Array(10).fill(-1), ri: 0, mv: 0, susT: 0,
   ensure() {   // first call must happen inside a user gesture
     if (this.ctx) return true;
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return false;
@@ -1642,7 +1825,8 @@ const audio = {
     const ctx = this.ctx;
     if (!ctx || !S.sound || !S.on_plops || ctx.state !== 'running') return;
     const now = ctx.currentTime;
-    this.recent = this.recent.filter(t => now - t < 0.15); if (this.recent.length > 10) return; this.recent.push(now);
+    let busy = 0; for (let i = 0; i < 10; i++) if (now - this.recent[i] < 0.15) busy++;   // max ~10 voices per 150 ms
+    if (busy >= 10) return; this.recent[this.ri = (this.ri + 1) % 10] = now;
     const P = PLOPS[kind], t = now + 0.005;
     const f = rnd(P.f[0], P.f[1]) / Math.sqrt(size), rise = rnd(P.rise[0], P.rise[1]), dur = rnd(P.dur[0], P.dur[1]) * Math.sqrt(size), g = P.g * Math.min(1.4, size);
     const o = ctx.createOscillator(), env = ctx.createGain();
@@ -1662,6 +1846,7 @@ const audio = {
   },
 };
 document.addEventListener('visibilitychange', () => {
+  perf.hold(1);
   if (!audio.ctx) return;
   if (document.hidden) for (const id in audio.loops) audio.loops[id].halt();
   audio.apply();
@@ -1782,9 +1967,11 @@ document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-press
 applyResolution(); rip.resize();
 paintStatic(); makePads(); makeFlowers(); syncCounts();
 
-let last = performance.now(), ripAcc = 0, avg = 1 / 60, perfT = 0;
+let last = performance.now(), ripAcc = 0;
 function frame(now) {
-  let dt = (now - last) / 1000; last = now;
+  requestAnimationFrame(frame);   // schedule first: one bad frame never stalls the loop
+  const t0 = performance.now(), ms = Math.max(0, now - last); last = now;
+  let dt = ms / 1000;
   if (dt > 0.1) dt = 0.1;
   time += dt;
   update(dt);
@@ -1792,11 +1979,8 @@ function frame(now) {
   ripAcc += dt; let st = 0;
   while (ripAcc >= 1 / 60 && st < 3) { rip.step(); ripAcc -= 1 / 60; st++; }
   if (ripAcc > 0.1) ripAcc = 0;
+  const t1 = performance.now();
   render();
-  // adaptive resolution
-  avg = avg * 0.95 + dt * 0.05; perfT += dt;
-  if (perfT > 3 && avg > 1 / 36 && quality > 0.55) { quality *= 0.85; applyResolution(); perfT = 0; }
-  requestAnimationFrame(frame);
+  perf.tick(ms, performance.now() - t0, t1 - t0);
 }
 requestAnimationFrame(frame);
-window.__pond = { sim(secs) { for (let i = 0; i < secs * 60; i++) { time += 1 / 60; update(1 / 60); rip.step(); } }, koi, minnows, pads, food, dropFood, setStyle, setSound, audio, get W() { return W; }, get H() { return H; } };
