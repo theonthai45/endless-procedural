@@ -5,6 +5,7 @@
     --ui-line: rgb(255 255 255 / .14);
     --ui-chip: rgb(255 255 255 / .08);
     --accent: #e8573a;
+    --page-bg: #0b2624;
     color-scheme: dark;
   }
   :root[data-style="ink"]{
@@ -14,11 +15,11 @@
     --ui-line: rgb(60 40 20 / .18);
     --ui-chip: rgb(60 40 20 / .07);
     --accent: #b8321f;
+    --page-bg: #efe7d6;
     color-scheme: light;
   }
   *{ box-sizing:border-box; }
-  html,body{ margin:0; height:100%; overflow:hidden; background:#0b2624; overscroll-behavior:none; }
-  :root[data-style="ink"] body{ background:#efe7d6; }
+  html,body{ margin:0; height:100%; overflow:hidden; background:var(--page-bg); overscroll-behavior:none; }
   body{
     font:14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     color:var(--ui-fg); -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none;

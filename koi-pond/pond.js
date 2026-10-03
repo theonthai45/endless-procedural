@@ -1727,10 +1727,25 @@ $('snd').onchange = e => setSound(e.target.checked);
     rr.addEventListener('input', () => { S['v_' + c.id] = +rr.value; oo.textContent = rr.value; audio.apply(); save(); });
   }
 }
+function chromeColor(st) { return st === 'ink' ? '#efe7d6' : '#0b2624'; }
+function applyChrome(st) {
+  const color = chromeColor(st);
+  document.documentElement.dataset.style = st;
+  document.documentElement.style.backgroundColor = color;
+  document.body.style.backgroundColor = color;
+  // iOS Safari caches theme-color; rewrite the tags so status / toolbar chrome updates.
+  document.querySelectorAll('meta[name="theme-color"]').forEach(el => el.remove());
+  for (const media of [null, '(prefers-color-scheme: light)', '(prefers-color-scheme: dark)']) {
+    const meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    meta.content = color;
+    if (media) meta.media = media;
+    document.head.appendChild(meta);
+  }
+}
 function setStyle(st) {
-  S.style = st; document.documentElement.dataset.style = st;
+  S.style = st; applyChrome(st);
   document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.style === st));
-  document.querySelector('meta[name="theme-color"]').content = st === 'ink' ? '#efe7d6' : '#0b2624';
   paintStatic(); for (const k of koi) paintKoi(k); floorDirty = true; save();
 }
 document.querySelectorAll('.seg button').forEach(b => b.onclick = () => setStyle(b.dataset.style));
@@ -1762,11 +1777,10 @@ addEventListener('keydown', e => {
 });
 
 /* ---------------- boot ---------------- */
-document.documentElement.dataset.style = S.style;
+applyChrome(S.style);
 document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.style === S.style));
 applyResolution(); rip.resize();
 paintStatic(); makePads(); makeFlowers(); syncCounts();
-if (S.style === 'ink') document.querySelector('meta[name="theme-color"]').content = '#efe7d6';
 
 let last = performance.now(), ripAcc = 0, avg = 1 / 60, perfT = 0;
 function frame(now) {
