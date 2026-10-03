@@ -1,14 +1,5 @@
+/* default: ink wash */
 :root{
-  --ui-bg: rgb(10 24 24 / .58);
-  --ui-fg: #eef3ee;
-  --ui-dim: rgb(238 243 238 / .62);
-  --ui-line: rgb(255 255 255 / .14);
-  --ui-chip: rgb(255 255 255 / .08);
-  --accent: #e8573a;
-  --page-bg: #0b2624;
-  color-scheme: dark;
-}
-:root[data-style="ink"]{
   --ui-bg: rgb(246 239 224 / .74);
   --ui-fg: #2a2420;
   --ui-dim: rgb(42 36 32 / .6);
@@ -17,6 +8,17 @@
   --accent: #b8321f;
   --page-bg: #efe7d6;
   color-scheme: light;
+}
+/* realistic: only when switched */
+:root[data-style="real"]{
+  --ui-bg: rgb(10 24 24 / .58);
+  --ui-fg: #eef3ee;
+  --ui-dim: rgb(238 243 238 / .62);
+  --ui-line: rgb(255 255 255 / .14);
+  --ui-chip: rgb(255 255 255 / .08);
+  --accent: #e8573a;
+  --page-bg: #0b2624;
+  color-scheme: dark;
 }
 *{ box-sizing:border-box; }
 html,body{ margin:0; height:100%; overflow:hidden; background:var(--page-bg); overscroll-behavior:none; }
