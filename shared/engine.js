@@ -88,6 +88,8 @@
   E.strip = function(o) {
     var T = o.tileW, OVER = o.over == null ? 2 : o.over, WH = o.worldH, VT = o.viewTop || 0, VH = WH - VT;
     var BASE = 0.1, BACK = 3e5, DIST = 2e7, stage = o.stage, layers = o.layers;
+    // every element that holds world-positioned children: the tile layers plus any extras
+    var groups = layers.map(function(l) { return l.el; }).concat(o.extra || []);
     var S = {
       scale: 1, k: 1, W: 0, H: 0, org: 0, tiles: [], pool: [], job: null, lo: 0, hi: 0,
       epoch: 1, gen: 1, speed: 35, dir: 1, paused: false, hidden: false, dragging: false,
@@ -107,8 +109,11 @@
       if (Math.abs(r - S.rate) < 0.003 && !(r === 0 && S.rate !== 0)) return;
       S.rate = r;
       if (anim.updatePlaybackRate) anim.updatePlaybackRate(r); else anim.playbackRate = r;
+      if (o.onRate) o.onRate(r);
     }
     S.viewLeft = viewLeft; S.viewRight = viewRight; S.lx = function(x) { return x - S.org; };
+    S.absPx = function() { return S.org * S.scale + posPx(); };   // distance travelled, in screen pixels
+    S.BASE = BASE;
 
     function measure(force) {
       var W = stage.clientWidth, H = stage.clientHeight;
@@ -121,10 +126,11 @@
       var maxPx = (E.coarse ? 2.2e6 : 3.2e6) * (o.pixelBudget || 1), px = (T + 2 * OVER) * WH * Math.pow(S.scale * dpr, 2);
       if (px > maxPx) dpr *= Math.sqrt(maxPx / px);
       S.k = S.scale * dpr;
-      for (var i = 0; i < layers.length; i++) layers[i].el.style.transform = "translate(0," + (-VT * S.scale) + "px) scale(" + S.scale + ")";
+      for (var i = 0; i < groups.length; i++) groups[i].style.transform = "translate(0," + (-VT * S.scale) + "px) scale(" + S.scale + ")";
       setPos(vl);
       S.epoch++;
       if (o.onMeasure) o.onMeasure(S);
+      if (o.onScrub) o.onScrub();
     }
 
     // keep compositor offsets small on very long runs: slide the origin under the view
@@ -133,19 +139,19 @@
       if (Math.abs(p) < 2e5 || S.dragging) return;
       var u = Math.round(p / S.scale);
       S.org += u;
-      for (var i = 0; i < layers.length; i++) {
-        var kids = layers[i].el.children;
+      for (var i = 0; i < groups.length; i++) {
+        var kids = groups[i].children;
         for (var n = 0; n < kids.length; n++) {
           var l = parseFloat(kids[n].style.left);
           if (l === l) kids[n].style.left = (l - u) + "px";
         }
       }
-      setPos(S.org + (p / S.scale - u) + 0);
-      if (o.onRebase) o.onRebase(u);
+      setPos(S.org + (p / S.scale - u));
+      if (o.onScrub) o.onScrub();
     }
 
     // ---------- tiles ----------
-    function release(el) { if (S.pool.length < 4) S.pool.push(el); else { el.width = 0; el.height = 0; } }
+    function release(el) { if (!o.ownCanvases && S.pool.length < 4) S.pool.push(el); else { el.width = 0; el.height = 0; } }
     function dropTile(t) {
       for (var i = 0; i < t.els.length; i++) { t.els[i].remove(); release(t.els[i]); }
       if (o.onDrop) o.onDrop(t);
@@ -180,18 +186,22 @@
       if (job.gen !== S.gen) { pump(); return; }
       var els = [], i;
       for (i = 0; i < layers.length; i++) {
-        var L = layers[i], cv = S.pool.pop() || document.createElement("canvas");
-        cv.width = Math.ceil((job.x1 - job.x0) * job.k); cv.height = Math.ceil(L.h * job.k);
-        var ctx = cv.getContext("2d");
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        o.paint(ctx, i, job, payload);
+        var L = layers[i], cv;
+        if (payload && payload.canvases) cv = payload.canvases[i];      // the renderer drew straight into its own canvases
+        else {
+          cv = S.pool.pop() || document.createElement("canvas");
+          cv.width = Math.ceil((job.x1 - job.x0) * job.k); cv.height = Math.ceil(L.h * job.k);
+          var ctx = cv.getContext("2d");
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          o.paint(ctx, i, job, payload);
+        }
         cv.className = "tile";
         cv.style.left = (job.x0 - S.org) + "px"; cv.style.top = L.y0 + "px";
         cv.style.width = (job.x1 - job.x0) + "px"; cv.style.height = L.h + "px";
         cv.style.opacity = "";
         els.push(cv);
       }
-      var rep = job.replace;
+      var rep = job.replace, tile = rep;
       if (rep) {
         if (S.tiles.indexOf(rep) < 0) { els.forEach(release); pump(); return; }
         var old = rep.els;
@@ -202,12 +212,12 @@
           setTimeout(function() { old.forEach(function(e) { e.remove(); release(e); }); }, 800);
         });
       } else {
-        var t = { idx: job.idx, x0: job.x0, x1: job.x1, els: els, epoch: job.epoch };
+        var t = tile = { idx: job.idx, x0: job.x0, x1: job.x1, els: els, epoch: job.epoch };
         for (i = 0; i < els.length; i++) layers[i].el.appendChild(els[i]);
         if (job.idx >= S.hi) { S.tiles.push(t); S.hi = job.idx + 1; }
         else { S.tiles.unshift(t); S.lo = job.idx; }
       }
-      if (o.onTile) o.onTile(job, payload, !!rep);
+      if (o.onTile) o.onTile(job, payload, tile);
       pump();
     }
     function recycle() {
@@ -245,6 +255,7 @@
       if (!drag.moved && Math.abs(dx) < 5) return;
       if (!drag.moved) { drag.moved = true; S.dragging = true; setRate(0); stage.style.cursor = "grabbing"; try { stage.setPointerCapture(e.pointerId); } catch (err) {} }
       setPos(clampView(drag.vl - dx / S.scale));
+      if (o.onScrub) o.onScrub();
       pump();
     });
     function endDrag(e) {
@@ -261,6 +272,7 @@
       var d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
       if (e.deltaMode === 1) d *= 30;
       setPos(clampView(viewLeft() + d / S.scale));
+      if (o.onScrub) o.onScrub();
       S.eff = Math.min(S.eff, 0.3);
       pump();
     }, { passive: false });
@@ -268,6 +280,7 @@
     document.addEventListener("visibilitychange", function() {
       S.hidden = document.hidden;
       if (S.hidden) anim.pause(); else { anim.play(); S.eff = Math.min(S.eff, 0.3); }
+      if (o.onHidden) o.onHidden(S.hidden);
       governor();
     });
     var rT = 0;
