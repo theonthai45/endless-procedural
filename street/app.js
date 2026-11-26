@@ -103,6 +103,8 @@
     }
     var hh = Math.floor(h) % 24, mm = Math.floor((h - Math.floor(h)) * 60);
     hourOut.textContent = (hh < 10 ? "0" : "") + hh + ":" + (mm < 10 ? "0" : "") + mm;
+    var note = hourOut.textContent + (WX.kind === "clear" ? "" : " \u00b7 " + WX.kind.charAt(0).toUpperCase() + WX.kind.slice(1));
+    if ($("signTime").textContent !== note) $("signTime").textContent = note;
     if (document.activeElement !== hourEl) hourEl.value = (Math.round(h * 4) / 4) % 24;
   }
   // switch lights on and off behind the windows of every drawn tile
@@ -326,6 +328,8 @@
   function place(el, x, y, box) {
     el.style.left = S.lx(x + box.x0) + "px"; el.style.top = (y - box.h) + "px";
     el.style.width = (box.x1 - box.x0) + "px"; el.style.height = box.h + "px"; el.style.zIndex = Math.round(y);
+    // where its shadow falls, and how wide
+    el.style.setProperty("--ox", (-box.x0) + "px"); el.style.setProperty("--sw", Math.max(11, (box.x1 - box.x0) * 0.42).toFixed(1) + "px");
   }
   var KIND = {
     walk: { sp: [24, 34], d: 0.56 }, child: { sp: [20, 26], d: 0.44 }, dog: { sp: [22, 28], d: 0.5 },
@@ -495,9 +499,26 @@
         el.className = "neon detail"; el.innerHTML = "<i></i>";
         el.style.width = e.extra.w + "px"; el.style.height = e.extra.h + "px"; el.style.setProperty("--c", e.extra.c);
         el.firstChild.style.animationDelay = (-lifeRnd() * 9).toFixed(2) + "s";
-      } else continue;
+      } else if (e.kind === "tree") { addTree(e); continue; }
+      else continue;
       fxEl.appendChild(el); statics.push({ el: el, x: e.x, kind: e.kind, key: e.key });
     }
+  }
+  // a tree: the trunk stands still, the crown sways on it
+  function addTree(e) {
+    var sp = treeSprite(e.extra), el = document.createElement("div"), crown = document.createElement("div");
+    el.className = "tree"; crown.className = "sway";
+    el.style.left = S.lx(e.x + sp.box.x0) + "px"; el.style.top = (e.y - sp.box.h) + "px";
+    el.style.width = (sp.box.x1 - sp.box.x0) + "px"; el.style.height = sp.box.h + "px"; el.style.zIndex = Math.round(e.y);
+    crown.style.transformOrigin = "50% " + (sp.box.h - sp.pivot * 0.55) + "px";
+    crown.style.animationDuration = (3.4 + lifeRnd() * 2.4).toFixed(2) + "s"; crown.style.animationDelay = (-lifeRnd() * 6).toFixed(2) + "s";
+    function draw() {
+      el.textContent = ""; crown.textContent = "";
+      el.appendChild(spriteCanvas(sp.box, sp.trunk)); crown.appendChild(spriteCanvas(sp.box, sp.crown)); el.appendChild(crown);
+    }
+    draw();
+    (e.extra.front ? fx2El : fxEl).appendChild(el);
+    statics.push({ el: el, x: e.x, kind: "tree", key: e.key, redraw: draw, front: e.extra.front });
   }
   // birds cross the sky now and then
   var birdsEl = $("birds");
@@ -538,6 +559,10 @@
   var ornT = 0;
   E.bindRange("ornament", "ornamentOut", function(v) { return v + "%"; }, function(v) { STYLE.ornament = v; clearTimeout(ornT); ornT = setTimeout(restyle, 200); });
   ["trees", "lamps"].forEach(function(k) { $(k).addEventListener("change", function(e) { STYLE[k] = e.target.checked; restyle(); }); });
+  $("trees").addEventListener("change", function(e) {
+    if (e.target.checked) return;
+    statics = statics.filter(function(s) { if (s.kind !== "tree" || !s.front) return true; s.el.remove(); delete EMIT[s.key]; return false; });
+  });
   $("skylineOn").addEventListener("change", function(e) { $("skyline").classList.toggle("off", !e.target.checked); $("mid").classList.toggle("off", !e.target.checked); });
   $("cloudsOn").addEventListener("change", function(e) { cloudsEl.classList.toggle("off", !e.target.checked); applyLight(); });
 

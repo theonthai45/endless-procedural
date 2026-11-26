@@ -226,7 +226,7 @@ function SurveyCore(scope) {
     // lakes: connected hollows that the flood had to fill
     var lakes = [], seen = new Uint8Array(n), stack = new Int32Array(n);
     for (a = 0; a < n; a++) {
-      if (seen[a] || Z[a] < 0 || W[a] - Z[a] < 0.0002) continue;
+      if (seen[a] || Z[a] < 0 || W[a] - Z[a] < 0.0006) continue;
       var sp = 0, cnt = 0, lvl = Infinity, deep = 0, sx = 0, sy = 0;
       stack[sp++] = a; seen[a] = 1;
       var first = cnt;
@@ -240,13 +240,13 @@ function SurveyCore(scope) {
           var qi = i + NB_I[k], qj = j + NB_J[k];
           if (qi < 0 || qj < 0 || qi >= nx || qj >= ny) continue;
           b = qj * nx + qi;
-          if (seen[b] || Z[b] < 0 || W[b] - Z[b] < 0.0002) continue;
+          if (seen[b] || Z[b] < 0 || W[b] - Z[b] < 0.0006) continue;
           seen[b] = 1; stack[sp++] = b;
         }
       }
       cnt = members.length;
       if (cnt < 14 || deep < 0.006) continue;
-      for (k = 0; k < cnt; k++) LK[members[k]] = W[members[k]];
+      for (k = 0; k < cnt; k++) LK[members[k]] = lvl;
       var lgi = gi0 + sx / cnt, lgj = GJ0 + sy / cnt;
       if (lgi >= c * CW && lgi < (c + 1) * CW) lakes.push({ x: lgi * HC, y: lgj * HC, n: cnt, lvl: lvl });
     }
@@ -549,7 +549,8 @@ function SurveyCore(scope) {
       paper: "#efe8d5",
       land: [[0, "#cbd9ae"], [0.18, "#dfe2b4"], [0.38, "#e9d9a8"], [0.6, "#d8b48a"], [0.82, "#c49a7c"], [1, "#f2eee8"]],
       water: [[0, "#cfe3e6"], [0.35, "#a9cdd8"], [1, "#7fadc4"]],
-      shadow: "#4b4a6a", shadeMix: 0.15, forest: "#b4cf98", forestMix: 0.6, sand: "#f3e7bd", wood: "rgba(62,104,58,.6)",
+      shadow: "#4b4a6a", shadeMix: 0.15, forest: "#b4cf98", forestMix: 0.6, sand: "#f3e7bd", fields: ["#ecec9c", "#cbe394", "#f6e29a"], fieldMix: 0.85, hedge: "rgba(84,112,58,.7)", rock: "#b3a497", rockMix: 0.6, rockSym: "rgba(86,66,52,.6)",
+      wood: "rgba(62,104,58,.6)",
       contour: "rgba(128,82,50,.5)", index: "rgba(110,66,38,.85)", depth: "rgba(60,120,155,.35)",
       shore: "rgba(40,98,132,.95)", waterline: "rgba(52,112,148,.5)", river: "#3d7ea8",
       road: "#b23a2a", lane: "#8c4a34", track: "rgba(100,58,40,.85)", grid: "rgba(70,55,40,.2)", frame: "#3b3127",
@@ -560,7 +561,8 @@ function SurveyCore(scope) {
       paper: "#ece9e1",
       land: [[0, "#b9cba0"], [0.2, "#ccd3a5"], [0.45, "#dacfa6"], [0.7, "#cdb79a"], [0.9, "#e3ddd7"], [1, "#fbfaf8"]],
       water: [[0, "#cddfe4"], [1, "#93b8cc"]],
-      shadow: "#3d4a78", shadeMix: 0.34, forest: "#9dbd8c", forestMix: 0.7, sand: "#efe6c8", wood: "rgba(60,95,60,.38)",
+      shadow: "#3d4a78", shadeMix: 0.34, forest: "#9dbd8c", forestMix: 0.7, sand: "#efe6c8", fields: ["#d9e09c", "#c2d894", "#e4dc9c"], fieldMix: 0.75, hedge: "rgba(74,100,62,.45)", rock: "#b0a69e", rockMix: 0.55, rockSym: "rgba(80,70,62,.42)",
+      wood: "rgba(60,95,60,.38)",
       contour: "rgba(110,90,70,.26)", index: "rgba(100,78,58,.5)", depth: "rgba(70,120,150,.25)",
       shore: "rgba(50,100,135,.85)", waterline: "rgba(60,110,140,.35)", river: "#4b86aa",
       road: "#a8402f", lane: "#8a5642", track: "rgba(110,70,50,.7)", grid: "rgba(60,60,70,.16)", frame: "#3a3833",
@@ -571,7 +573,8 @@ function SurveyCore(scope) {
       paper: "#eadfc3",
       land: [[0, "#e6dcbd"], [0.5, "#eadfc3"], [1, "#efe6cf"]],
       water: [[0, "#dcd9c2"], [1, "#c4cabb"]],
-      shadow: "#5a4630", shadeMix: 0.1, forest: "#d6d6ad", forestMix: 0.55, sand: "#efe3c0", wood: "rgba(70,84,50,.7)",
+      shadow: "#5a4630", shadeMix: 0.1, forest: "#d6d6ad", forestMix: 0.55, sand: "#efe3c0", fields: ["#e4dab2", "#ddd8ac", "#ece2bc"], fieldMix: 0.6, hedge: "rgba(90,74,50,.42)", rock: "#dccfb2", rockMix: 0.4, rockSym: "rgba(74,52,34,.62)",
+      wood: "rgba(70,84,50,.7)",
       contour: "rgba(120,88,56,.0)", index: "rgba(110,80,50,.34)", depth: "rgba(80,90,90,.22)",
       shore: "rgba(58,42,30,.95)", waterline: "rgba(70,70,70,.42)", river: "#4d6672",
       road: "#8a2f1f", lane: "#6b4630", track: "rgba(80,56,40,.85)", grid: "rgba(90,66,40,.18)", frame: "#3a2a1c",
@@ -582,7 +585,8 @@ function SurveyCore(scope) {
       paper: "#163f63",
       land: [[0, "#1a4a72"], [1, "#2a6292"]],
       water: [[0, "#123757"], [1, "#0d2b47"]],
-      shadow: "#061a2e", shadeMix: 0.35, forest: "#1c5a7c", forestMix: 0.5, sand: "#24577f", wood: "rgba(170,215,255,.3)",
+      shadow: "#061a2e", shadeMix: 0.35, forest: "#1c5a7c", forestMix: 0.5, sand: "#24577f", fields: ["#1f5682", "#235c8a", "#1c4f79"], fieldMix: 0.6, hedge: "rgba(200,225,255,.24)", rock: "#33709f", rockMix: 0.5, rockSym: "rgba(220,238,255,.42)",
+      wood: "rgba(170,215,255,.3)",
       contour: "rgba(205,228,255,.4)", index: "rgba(225,240,255,.8)", depth: "rgba(150,200,255,.2)",
       shore: "rgba(240,248,255,.95)", waterline: "rgba(190,220,255,.4)", river: "#bfe0ff",
       road: "#ffd27a", lane: "#e9c98f", track: "rgba(255,220,150,.6)", grid: "rgba(200,225,255,.16)", frame: "#d8ebff",
@@ -593,7 +597,8 @@ function SurveyCore(scope) {
       paper: "#0e1117",
       land: [[0, "#10151d"], [1, "#1c2230"]],
       water: [[0, "#0a0f17"], [1, "#05080d"]],
-      shadow: "#000000", shadeMix: 0.4, forest: "#0f1f1b", forestMix: 0.7, sand: "#161b25", wood: "rgba(90,210,160,.3)",
+      shadow: "#000000", shadeMix: 0.4, forest: "#0f1f1b", forestMix: 0.7, sand: "#161b25", fields: ["#151d24", "#172022", "#131a26"], fieldMix: 0.7, hedge: "rgba(120,200,160,.2)", rock: "#262d3e", rockMix: 0.6, rockSym: "rgba(205,185,255,.38)",
+      wood: "rgba(90,210,160,.3)",
       contour: "ramp", index: "ramp", depth: "rgba(70,150,190,.22)",
       shore: "rgba(110,225,235,.95)", waterline: "rgba(90,200,220,.35)", river: "#5fd4e6",
       road: "#ff8f6b", lane: "#d98a70", track: "rgba(255,160,120,.55)", grid: "rgba(150,170,210,.1)", frame: "#8e9ab8",
@@ -605,7 +610,8 @@ function SurveyCore(scope) {
       paper: "#f5f2ea",
       land: [[0, "#f5f2ea"], [1, "#f5f2ea"]],
       water: [[0, "#e9eef0"], [1, "#dfe7ea"]],
-      shadow: "#2a2a2a", shadeMix: 0.0, forest: "#eeede2", forestMix: 0.6, sand: "#f5f2ea", wood: "rgba(20,20,20,.42)",
+      shadow: "#2a2a2a", shadeMix: 0.0, forest: "#eeede2", forestMix: 0.6, sand: "#f5f2ea", fields: ["#f5f2ea", "#f5f2ea", "#f5f2ea"], fieldMix: 0, hedge: "rgba(20,20,20,.3)", rock: "#f5f2ea", rockMix: 0, rockSym: "rgba(20,20,20,.5)",
+      wood: "rgba(20,20,20,.42)",
       contour: "rgba(30,30,30,.5)", index: "rgba(20,20,20,.88)", depth: "rgba(30,30,30,.18)",
       shore: "rgba(20,20,20,.95)", waterline: "rgba(20,20,20,.35)", river: "#1d1d1d",
       road: "#1d1d1d", lane: "#333333", track: "rgba(30,30,30,.7)", grid: "rgba(20,20,20,.14)", frame: "#1d1d1d",
@@ -615,7 +621,7 @@ function SurveyCore(scope) {
   };
   function prepTheme(t) {
     if (t._land) return t;
-    t._land = rampLUT(t.land); t._water = rampLUT(t.water); t._shadow = hex(t.shadow); t._forest = hex(t.forest); t._sand = hex(t.sand);
+    t._land = rampLUT(t.land); t._water = rampLUT(t.water); t._shadow = hex(t.shadow); t._forest = hex(t.forest); t._sand = hex(t.sand); t._fields = t.fields.map(hex); t._rock = hex(t.rock);
     if (t.ramp) {
       var l = rampLUT(t.ramp); t._ramp = [];
       for (var i = 0; i < 8; i++) { var k = Math.round(i / 7 * 255) * 3; t._ramp.push([l[k], l[k + 1], l[k + 2]]); }
@@ -661,13 +667,14 @@ function SurveyCore(scope) {
       }
     }
     // lake levels, gathered from the chunks that own them
-    var lg0 = Math.floor(gx0 / HC) - 2, lw = Math.ceil(nx * c / HC) + 6, LKT = new Float32Array(lw * NYW), LKF = new Uint8Array(lw * NYW);
+    var lg0 = Math.floor(gx0 / HC) - 2, lw = Math.ceil(nx * c / HC) + 6, LKT = new Float32Array(lw * NYW);
     for (i = 0; i < lw; i++) {
       var gi = lg0 + i, cc = Math.floor(gi / CW), own = chunks[cc] || stage1(cc);
       for (j = 0; j < NYW; j++) {
         var oq = j * NXW + (gi - own.gi0);
-        LKT[j * lw + i] = Math.max(0, own.W[oq]);
-        if (own.LK[oq] > 0) for (var ej = Math.max(0, j - 1); ej <= Math.min(NYW - 1, j + 1); ej++) for (var ei = Math.max(0, i - 1); ei <= Math.min(lw - 1, i + 1); ei++) LKF[ej * lw + ei] = 1;
+        // a lake's level reaches one node beyond its own cells, so the shore is wherever the land rises through it
+        var lkv = own.LK[oq];
+        if (lkv > 0) for (var ej = Math.max(0, j - 1); ej <= Math.min(NYW - 1, j + 1); ej++) for (var ei = Math.max(0, i - 1); ei <= Math.min(lw - 1, i + 1); ei++) if (lkv > LKT[ej * lw + ei]) LKT[ej * lw + ei] = lkv;
       }
     }
     var cover = STYLE.cover !== false;
@@ -679,11 +686,8 @@ function SurveyCore(scope) {
         var hu = elev(col, x, y), h = hu - CV[idx], lj = Math.floor(y / HC) - GJ0, lv = 0;
         if (lj >= 0 && lj < NYW - 1) {
           var lb = lj * lw + li;
-          if (LKF[lb] | LKF[lb + 1] | LKF[lb + lw] | LKF[lb + lw + 1]) {
-            // the water surface, interpolated so shores follow the land rather than the grid
-            var fx = x / HC - Math.floor(x / HC), fy = y / HC - Math.floor(y / HC);
-            lv = Math.max(0, (LKT[lb] * (1 - fx) + LKT[lb + 1] * fx) * (1 - fy) + (LKT[lb + lw] * (1 - fx) + LKT[lb + lw + 1] * fx) * fy - 0.0022);
-          }
+          lv = Math.max(LKT[lb], LKT[lb + 1], LKT[lb + lw], LKT[lb + lw + 1]);
+          if (lv > 0) lv -= 0.0003;
         }
         // lakes are judged on the uncut land, so a river's valley cannot leak the lake along it
         if (lv > 0 && hu < lv) { H[idx] = hu; FF[idx] = hu - lv; S[idx] = lv; continue; }
@@ -695,10 +699,37 @@ function SurveyCore(scope) {
       }
     }
 
+    // fields: parcels in offset rows on one of two bearings. A parcel is farmed only if the
+    // whole of it is low, level and clear of woods, judged from the land itself so that
+    // neighbouring tiles always agree.
+    var FCOS = [1, Math.cos(0.32), Math.cos(-0.55)], FSIN = [0, Math.sin(0.32), Math.sin(-0.55)], PARCEL = new Map();
+    function fieldV(x, y, z) { return Math.floor((-x * FSIN[z] + y * FCOS[z]) / 24); }
+    function fieldOff(v, z) { return hash3(v, z, 811) * 36; }
+    function fieldU(x, y, z, v) { return Math.floor((x * FCOS[z] + y * FSIN[z] + fieldOff(v, z)) / 36); }
+    function parcel(z, u, v) {
+      var key = ((u + 40000) * 80000 + (v + 40000)) * 4 + z, ok = PARCEL.get(key);
+      if (ok !== undefined) return ok;
+      var cz = FCOS[z], sz = FSIN[z], ua = u * 36 - fieldOff(v, z), va = v * 24, cu = ua + 18, cv2 = va + 12;
+      var cx = cu * cz - cv2 * sz, cy = cu * sz + cv2 * cz, N = noiseFor(seedAt(cx));
+      ok = cy > 34 && cy < WH - 34 && (N.s2(cx * 0.0012 + 5, cy * 0.0012 - 9) > 0 ? 1 : 2) === z &&
+        N.fbm(cx * 0.0031 - 20, cy * 0.0031 + 60, 2) > -0.32 && N.fbm(cx * 0.0042 + 90, cy * 0.0042 - 40, 3) < 0.15;
+      if (ok) {
+        var lo = Infinity, hi = -Infinity, pts = [cu, cv2, ua, va, ua + 36, va, ua, va + 24, ua + 36, va + 24];
+        for (var q = 0; q < 10 && ok; q += 2) {
+          var px2 = pts[q] * cz - pts[q + 1] * sz, py2 = pts[q] * sz + pts[q + 1] * cz, e = elevAt(px2, py2), w2 = at(px2, py2);
+          if (e < lo) lo = e; if (e > hi) hi = e;
+          if (w2 >= 0 && FF[w2] < 0.004) ok = false;                 // a lake or a river's bed
+        }
+        ok = ok && lo > 0.008 && hi < 0.22 && hi - lo < 0.056;
+      }
+      PARCEL.set(key, ok);
+      return ok;
+    }
+    function at(xx, yy) { var ii = Math.round((xx - gx0) / c), jj = Math.round((yy - gy0) / c); return (ii < 1 || jj < 1 || ii >= nx - 1 || jj >= ny - 1) ? -1 : jj * nx + ii; }
     // --- tint + hillshade image ---
     var img = makeCanvas(nx, ny), ic = img.getContext("2d"), id = ic.createImageData(nx, ny), dt = id.data;
     var st = STYLE.shade / 100, ZS = 190, L0 = -0.55, L1 = -0.62, L2 = 0.56;
-    var sh = T._shadow, mix = T.shadeMix, fc = T._forest, fm = T.forestMix, sc = T._sand;
+    var sh = T._shadow, mix = T.shadeMix, fc = T._forest, fm = T.forestMix, sc = T._sand, rk = T._rock;
     for (j = 0; j < ny; j++) {
       var ja = Math.max(0, j - 1), jb = Math.min(ny - 1, j + 1);
       for (i = 0; i < nx; i++) {
@@ -711,12 +742,27 @@ function SurveyCore(scope) {
           ll = Math.min(255, Math.max(0, (hh / 0.46) * 255)) | 0;
           lut = T._land; r = lut[ll * 3]; g = lut[ll * 3 + 1]; b = lut[ll * 3 + 2];
           if (FO[idx]) { var fa = FO[idx] / 255 * fm; r += (fc[0] - r) * fa; g += (fc[1] - g) * fa; b += (fc[2] - b) * fa; }
+          else if (cover && F > 0.004 && hh < 0.24) {
+            var fx3 = gx0 + i * c, fy3 = gy0 + j * c;
+            for (var fz2 = 1; fz2 <= 2; fz2++) {
+              var fv3 = fieldV(fx3, fy3, fz2), fu3 = fieldU(fx3, fy3, fz2, fv3);
+              if (!parcel(fz2, fu3, fv3)) continue;
+              var fcol = T._fields[Math.floor(hash3(fu3, fv3, 812 + fz2) * 3)], fmx = T.fieldMix;
+              r += (fcol[0] - r) * fmx; g += (fcol[1] - g) * fmx; b += (fcol[2] - b) * fmx;
+              break;
+            }
+            if (fz2 > 2 && sv === 0 && F < 0.006) { var sa0 = (1 - F / 0.006) * 0.7; r += (sc[0] - r) * sa0; g += (sc[1] - g) * sa0; b += (sc[2] - b) * sa0; }
+          }
           else if (sv === 0 && F < 0.006) { var sa = (1 - F / 0.006) * 0.7; r += (sc[0] - r) * sa; g += (sc[1] - g) * sa; b += (sc[2] - b) * sa; }
           var ia = Math.max(0, i - 1), ib = Math.min(nx - 1, i + 1);
           var e1 = j * nx + ib, e0 = j * nx + ia, s1 = jb * nx + i, s0 = ja * nx + i;
           var dx = ((FF[e1] < 0 ? S[e1] : H[e1]) - (FF[e0] < 0 ? S[e0] : H[e0])) * ZS / ((ib - ia) * c);
           var dy = ((FF[s1] < 0 ? S[s1] : H[s1]) - (FF[s0] < 0 ? S[s0] : H[s0])) * ZS / ((jb - ja) * c);
-          var inv = 1 / Math.sqrt(dx * dx + dy * dy + 1);
+          var inv = 1 / Math.sqrt(dx * dx + dy * dy + 1), steep = Math.sqrt(dx * dx + dy * dy);
+          if (cover && hh > 0.17 && steep > 0.4 && !FO[idx]) {            // bare rock and scree on the steepest high ground
+            var ra = Math.min(1, (steep - 0.4) / 0.45) * T.rockMix;
+            r += (rk[0] - r) * ra; g += (rk[1] - g) * ra; b += (rk[2] - b) * ra;
+          }
           var lam = Math.max(0, (-dx * L0 - dy * L1 + L2) * inv) / 0.84; // 1 = flat
           var f = 1 + st * (lam - 1) * 0.85;
           var mm = Math.max(0, 1 - lam) * st * mix;
@@ -808,7 +854,6 @@ function SurveyCore(scope) {
       if (T.glow) strokeSegs(P.index[n], bandStyle(T.index, n, 0.22), 4);
       strokeSegs(P.index[n], bandStyle(T.index, n, 1), 1.1);
     }
-    function at(xx, yy) { var ii = Math.round((xx - gx0) / c), jj = Math.round((yy - gy0) / c); return (ii < 1 || jj < 1 || ii >= nx - 1 || jj >= ny - 1) ? -1 : jj * nx + ii; }
 
     // --- hachures: short strokes down the slope, heavier on the shaded side ---
     if (T.hachure) {
@@ -831,6 +876,40 @@ function SurveyCore(scope) {
 
     // --- land cover symbols ---
     if (cover) {
+      // hedgerows around the fields
+      ctx.beginPath();
+      for (var fz = 1; fz <= 2; fz++) {
+        var cz = FCOS[fz], sz = FSIN[fz], vmin = Infinity, vmax = -Infinity, umin = Infinity, umax = -Infinity;
+        [[x0, 0], [x1, 0], [x0, WH], [x1, WH]].forEach(function(p) {
+          var vv2 = (-p[0] * sz + p[1] * cz) / 24, uu = (p[0] * cz + p[1] * sz) / 36;
+          vmin = Math.min(vmin, vv2); vmax = Math.max(vmax, vv2); umin = Math.min(umin, uu); umax = Math.max(umax, uu);
+        });
+        var isField = function(u, v) { return parcel(fz, u, v); };
+        var edge = function(ua, va, ub, vb) { ctx.moveTo(ua * cz - va * sz, ua * sz + va * cz); ctx.lineTo(ub * cz - vb * sz, ub * sz + vb * cz); };
+        for (var fv4 = Math.floor(vmin) - 1; fv4 <= vmax + 1; fv4++) {
+          var off2 = fieldOff(fv4, fz);
+          for (var fu = Math.floor(umin) - 1; fu <= umax + 2; fu++) {
+            if (!isField(fu, fv4)) continue;
+            var ua = fu * 36 - off2, ub = ua + 36, va = fv4 * 24, vb = va + 24;
+            edge(ua, va, ub, va); edge(ua, va, ua, vb);
+            if (!isField(fu + 1, fv4)) edge(ub, va, ub, vb);
+            edge(ua, vb, ub, vb);
+          }
+        }
+      }
+      ctx.strokeStyle = T.hedge; ctx.lineWidth = 0.6 * px; ctx.stroke();
+      // scree: stipple running down the steep faces
+      var rs = 5.5;
+      ctx.beginPath();
+      for (var ri = Math.floor(x0 / rs) - 1; ri <= Math.ceil(x1 / rs); ri++) for (var rj = 4; rj < WH / rs - 3; rj++) {
+        var rx3 = (ri + hash3(ri, rj, 321)) * rs, ry3 = (rj + hash3(rj, ri, 322)) * rs, a4 = at(rx3, ry3);
+        if (a4 < 0 || FO[a4] || H[a4] < 0.17 || FF[a4] < 0.01) continue;
+        var sx4 = (H[a4 + 1] - H[a4 - 1]) / (2 * c), sy4 = (H[a4 + nx] - H[a4 - nx]) / (2 * c), sl4 = Math.hypot(sx4, sy4);
+        if (sl4 < 0.0023 || hash3(ri, rj, 323) > (sl4 - 0.0023) * 420 + 0.25) continue;
+        var dl = 0.7 + hash3(ri, rj, 324) * 1.5;
+        ctx.moveTo(rx3, ry3); ctx.lineTo(rx3 - sx4 / sl4 * dl, ry3 - sy4 / sl4 * dl);
+      }
+      ctx.lineCap = "round"; ctx.strokeStyle = T.rockSym; ctx.lineWidth = 0.9 * px; ctx.stroke();
       var ts = 11;
       ctx.beginPath();
       for (var ti = Math.floor(x0 / ts) - 1; ti <= Math.ceil(x1 / ts); ti++) for (var tj = 3; tj < WH / ts - 2; tj++) {
@@ -1108,8 +1187,76 @@ function SurveyCore(scope) {
     });
   }
 
+  /* ---------- the key: every symbol on the sheet, in the current edition's colours ---------- */
+  function drawKey(ctx, STYLE, w) {
+    var T = prepTheme(THEMES[STYLE.theme] || THEMES.survey), rows = [
+      ["Main road", "road"], ["Lane", "lane"], ["Footpath", "path"], ["River", "river"], ["Bridge", "bridge"], ["Contour, every fifth", "contour"],
+      ["Woodland", "wood"], ["Fields", "field"], ["Marsh", "marsh"], ["Scree", "scree"], ["Town", "town"], ["Village", "village"],
+      ["Summit, metres", "peak"], ["Lighthouse", "light"], ["Lake or sea", "water"], ["Sounding", "snd"]
+    ], colW = w / 2, rh = 21, h = Math.ceil(rows.length / 2) * rh + 8;
+    ctx.fillStyle = T.paper; ctx.fillRect(0, 0, w, h);
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    function col(n, a) { var q = T._ramp[n]; return "rgba(" + q[0] + "," + q[1] + "," + q[2] + "," + a + ")"; }
+    function swatch(x, y, c) { ctx.fillStyle = c; ctx.fillRect(x, y - 7, 34, 14); }
+    function rgb(q) { return "rgb(" + q[0] + "," + q[1] + "," + q[2] + ")"; }
+    rows.forEach(function(row, n) {
+      var x = 8 + (n % 2) * colW, y = 15 + Math.floor(n / 2) * rh, k = row[1], u;
+      ctx.setLineDash([]);
+      if (k === "road") { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 34, y); ctx.strokeStyle = T.frame; ctx.lineWidth = 2.9; ctx.stroke(); ctx.strokeStyle = T.road; ctx.lineWidth = 1.7; ctx.stroke(); }
+      else if (k === "lane") { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 34, y); ctx.strokeStyle = T.lane; ctx.lineWidth = 1.1; ctx.stroke(); }
+      else if (k === "path") { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 34, y); ctx.setLineDash([3.2, 2.6]); ctx.lineCap = "butt"; ctx.strokeStyle = T.track; ctx.lineWidth = 0.9; ctx.stroke(); ctx.lineCap = "round"; }
+      else if (k === "river") { ctx.beginPath(); ctx.moveTo(x, y + 3); ctx.bezierCurveTo(x + 10, y - 7, x + 22, y + 8, x + 34, y - 3); ctx.strokeStyle = T.river; ctx.lineWidth = 1.6; ctx.stroke(); }
+      else if (k === "bridge") {
+        ctx.beginPath(); ctx.moveTo(x + 17, y - 8); ctx.lineTo(x + 17, y + 8); ctx.strokeStyle = T.river; ctx.lineWidth = 1.6; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 34, y); ctx.strokeStyle = T.frame; ctx.lineWidth = 2.9; ctx.stroke(); ctx.strokeStyle = T.road; ctx.lineWidth = 1.7; ctx.stroke();
+        ctx.beginPath(); for (u = -1; u <= 1; u += 2) { ctx.moveTo(x + 12, y + u * 3.6); ctx.lineTo(x + 13.5, y + u * 2.5); ctx.lineTo(x + 20.5, y + u * 2.5); ctx.lineTo(x + 22, y + u * 3.6); }
+        ctx.strokeStyle = T.frame; ctx.lineWidth = 0.9; ctx.stroke();
+      }
+      else if (k === "contour") {
+        ctx.beginPath(); ctx.moveTo(x, y + 5); ctx.quadraticCurveTo(x + 17, y - 1, x + 34, y + 4); ctx.strokeStyle = T.contour === "ramp" ? col(3, 0.55) : T.hachure ? T.index : T.contour; ctx.lineWidth = 0.6; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x, y - 1); ctx.quadraticCurveTo(x + 17, y - 8, x + 34, y - 3); ctx.strokeStyle = T.index === "ramp" ? col(5, 1) : T.index; ctx.lineWidth = 1.1; ctx.stroke();
+      }
+      else if (k === "wood") {
+        swatch(x, y, rgb(T._forest));
+        ctx.beginPath(); for (u = 0; u < 4; u++) { ctx.moveTo(x + 6.4 + u * 8, y + (u % 2 ? 2 : -2)); ctx.arc(x + 5 + u * 8, y + (u % 2 ? 2 : -2), 1.4, 0.6, 5.6); }
+        ctx.strokeStyle = T.wood; ctx.lineWidth = 0.7; ctx.stroke();
+      }
+      else if (k === "field") {
+        for (u = 0; u < 3; u++) { ctx.fillStyle = rgb(T._fields[u]); ctx.fillRect(x + u * 11.3, y - 7, 11.4, 14); }
+        ctx.beginPath(); ctx.rect(x, y - 7, 34, 14); ctx.moveTo(x + 11.3, y - 7); ctx.lineTo(x + 11.3, y + 7); ctx.moveTo(x + 22.6, y - 7); ctx.lineTo(x + 22.6, y + 7);
+        ctx.strokeStyle = T.hedge; ctx.lineWidth = 0.7; ctx.stroke();
+      }
+      else if (k === "marsh") {
+        ctx.beginPath(); for (u = 0; u < 3; u++) { var mx = x + 6 + u * 11, my = y + (u % 2 ? -2 : 3); ctx.moveTo(mx - 3, my); ctx.lineTo(mx + 3, my); ctx.moveTo(mx - 1.4, my); ctx.lineTo(mx - 2, my - 2.2); ctx.moveTo(mx, my); ctx.lineTo(mx, my - 2.8); ctx.moveTo(mx + 1.4, my); ctx.lineTo(mx + 2, my - 2.2); }
+        ctx.strokeStyle = T.waterline; ctx.lineWidth = 0.8; ctx.stroke();
+      }
+      else if (k === "scree") {
+        swatch(x, y, rgb(T._rock));
+        ctx.beginPath(); for (u = 0; u < 26; u++) { var qx = x + 2 + hash3(u, 1, 9) * 30, qy = y - 5 + hash3(u, 2, 9) * 10; ctx.moveTo(qx, qy); ctx.lineTo(qx + 0.8, qy + 1.4); }
+        ctx.strokeStyle = T.rockSym; ctx.lineWidth = 0.9; ctx.stroke();
+      }
+      else if (k === "town") { ctx.fillStyle = T.build; for (u = 0; u < 14; u++) ctx.fillRect(x + 4 + (u % 7) * 4, y - 5 + Math.floor(u / 7) * 5 + hash3(u, 3, 9) * 2, 2.6, 2.2); }
+      else if (k === "village") { ctx.beginPath(); ctx.arc(x + 17, y, 2.6, 0, 6.2832); ctx.fillStyle = T.halo; ctx.fill(); ctx.strokeStyle = T.town; ctx.lineWidth = 1; ctx.stroke(); }
+      else if (k === "peak") {
+        ctx.fillStyle = T.peak; ctx.beginPath(); ctx.moveTo(x + 8, y - 4.5); ctx.lineTo(x + 12, y + 2.5); ctx.lineTo(x + 4, y + 2.5); ctx.fill();
+        ctx.font = "italic 10px " + STYLE.fontSerif; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.fillText("1,204", x + 14, y + 3);
+      }
+      else if (k === "light") {
+        ctx.beginPath(); for (u = 0; u < 8; u++) { var an = u * Math.PI / 4; ctx.moveTo(x + 17 + Math.cos(an) * 3.2, y + Math.sin(an) * 3.2); ctx.lineTo(x + 17 + Math.cos(an) * 6, y + Math.sin(an) * 6); }
+        ctx.strokeStyle = T.road; ctx.lineWidth = 0.8; ctx.stroke(); ctx.beginPath(); ctx.arc(x + 17, y, 2, 0, 6.2832); ctx.fillStyle = T.road; ctx.fill();
+      }
+      else if (k === "water") {
+        swatch(x, y, rgb([T._water[120 * 3], T._water[120 * 3 + 1], T._water[120 * 3 + 2]]));
+        ctx.strokeStyle = T.shore; ctx.lineWidth = 1.2; ctx.strokeRect(x, y - 7, 34, 14);
+      }
+      else if (k === "snd") { ctx.font = "italic 9px " + STYLE.fontSerif; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"; ctx.fillStyle = T.waterText; ctx.fillText("24", x + 17, y + 3); }
+      ctx.font = "11px " + STYLE.fontSans; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillStyle = T.text; ctx.fillText(row[0], x + 42, y + 0.5);
+    });
+    return h;
+  }
+
   return {
-    setTerrain: setTerrain, renderTile: renderTile, drawLabels: drawLabels, regionName: regionName,
+    drawKey: drawKey, setTerrain: setTerrain, renderTile: renderTile, drawLabels: drawLabels, regionName: regionName,
     paper: function(theme) { return (THEMES[theme] || THEMES.survey).paper; },
     BLEND: BLEND, WH: WH
   };
