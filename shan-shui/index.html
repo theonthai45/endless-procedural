@@ -80,9 +80,14 @@ body {
   background-color: var(--paper); background-repeat: repeat;
   touch-action: none; -webkit-user-select: none; user-select: none;
 }
-#tone { position: absolute; inset: 0; }
-#strip { position: absolute; left: 0; top: 0; will-change: transform; }
-#inner { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+#tone { position: absolute; inset: 0; background: #fff; }
+/* two painted layers: far mountains drift slowly behind the near hills, trees and water */
+.strip { position: absolute; left: 0; top: 0; will-change: transform; }
+.inner { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+/* the feet of the far range dissolve into mist before the near ground begins */
+#haze { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(rgba(255,255,255,0) 34%, rgba(255,255,255,.55) 56%, rgba(255,255,255,.9) 74%, rgba(255,255,255,.9) 100%); }
+/* the paper lies over both layers and takes the ink, as the grain of a real sheet would */
+#paper { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: multiply; background-repeat: repeat; }
 .tile { position: absolute; top: 0; display: block; }
 
 /* mist: soft paper-coloured banks that drift slower than the scroll */
@@ -297,7 +302,10 @@ body.bare .home-link{opacity:0;pointer-events:none}
 
 <div id="stage" aria-label="An endlessly scrolling, procedurally painted Chinese landscape" role="img">
   <div id="tone">
-    <div id="strip"><div id="inner"></div></div>
+    <div id="stripFar" class="strip"><div class="inner"></div></div>
+    <div id="haze"></div>
+    <div id="strip" class="strip"><div class="inner"></div></div>
+    <div id="paper"></div>
     <div id="mist"><div class="bank b2"></div><div class="bank b1"></div></div>
   </div>
   <div id="wx" data-kind="none"><div class="sway"><div class="fall" id="w1"></div><div class="fall" id="w2"></div></div></div>
@@ -342,6 +350,8 @@ body.bare .home-link{opacity:0;pointer-events:none}
       <label class="check"><input type="checkbox" id="dist" checked> Distant ranges</label>
       <label class="check"><input type="checkbox" id="water" checked> Water ripples</label>
     </div>
+    <div class="row"><label for="parallax">Depth between layers</label><output id="parallaxOut"></output>
+      <input type="range" id="parallax" min="0" max="80" step="5" value="55"></div>
   </section>
 
   <section>
@@ -4189,18 +4199,43 @@ var TERRAIN = {
   water: true
 };
 
-function planChunk(xmin, xmax, P) {
-  var reg = [];
-  function chadd(r, mind) {
-    mind = mind == undefined ? 10 : mind;
-    for (var k = 0; k < reg.length; k++) {
-      if (Math.abs(reg[k].x - r.x) < mind) return false;
+// The scroll is painted as two layers that move at different speeds.
+// Each has its own plan: the far layer holds the high ranges, the near layer the
+// small hills with their trees, the rocks, flat islands, boats and water.
+function planner(body) {
+  return function(xmin, xmax, P) {
+    var reg = [];
+    function chadd(r, mind) {
+      mind = mind == undefined ? 10 : mind;
+      for (var k = 0; k < reg.length; k++) if (Math.abs(reg[k].x - r.x) < mind) return false;
+      reg.push(r);
+      return true;
     }
-    reg.push(r);
+    body(xmin, xmax, P, chadd);
+    // snapshot of the settings that affect item generation
+    for (var q = 0; q < reg.length; q++) { reg[q].veg = P.veg; reg[q].water = P.water; reg[q].hmul = P.height / 100; }
+    return reg;
+  };
+}
+var planFar = planner(function(xmin, xmax, P, chadd) {
+  var thr = 0.62 - P.density * 0.002, xstep = 5;
+  var ns = function(x) { return Math.max(Noise.noise(x * 0.02 + 913.7) - thr, 0) * 2; };
+  function locmax(x, r) {
+    var z0 = ns(x);
+    if (z0 <= 0.3) return false;
+    for (var i = x - r; i < x + r; i++) if (ns(i) > z0) return false;
     return true;
   }
-  var thr = 0.65 - P.density * 0.002;
-  var samp = 0.03;
+  for (var i = xmin; i < xmax; i += xstep) {
+    if (locmax(i, 3)) {
+      var rows = 1 + Math.floor(Math.random() * 2.4);
+      for (var j = 0; j < rows; j++) chadd({ tag: "farmount", x: i + 2 * (Math.random() - 0.5) * 420, y: 320 + j * 50 + Math.random() * 30 }, 70);
+    }
+    if (P.dist && Math.abs(i) % 800 < Math.max(1, xstep - 1)) chadd({ tag: "distmount", x: i, y: 270 - Math.random() * 50 });
+  }
+});
+var planNear = planner(function(xmin, xmax, P, chadd) {
+  var thr = 0.65 - P.density * 0.002, samp = 0.03, xstep = 5, mwid = 200, i, j;
   var ns = function(x) { return Math.max(Noise.noise(x * samp) - thr, 0) * 2; };
   var yr = function(x) { return Noise.noise(x * 0.01, Math.PI); };
   function locmax(x, r) {
@@ -4210,49 +4245,31 @@ function planChunk(xmin, xmax, P) {
     return true;
   }
   var mtx = PLAN.planmtx;
-  var xstep = 5, mwid = 200;
-  for (var i = xmin; i < xmax; i += xstep) {
-    var i1 = Math.floor(i / xstep);
-    mtx[i1] = mtx[i1] || 0;
-  }
-  var depth = 480 * (P.depth / 100);
-  for (var i = xmin; i < xmax; i += xstep) {
+  for (i = xmin; i < xmax; i += xstep) { var i1 = Math.floor(i / xstep); mtx[i1] = mtx[i1] || 0; }
+  var depth = 300 * (P.depth / 100);
+  for (i = xmin; i < xmax; i += xstep) {
     var peak = locmax(i, 2);
-    for (var j = 0; j < yr(i) * depth; j += 30) {
-      if (peak) {
-        var xof = i + 2 * (Math.random() - 0.5) * 500;
-        var yof = j + 300;
-        if (chadd({ tag: "mount", x: xof, y: yof })) {
-          for (var k = Math.floor((xof - mwid) / xstep); k < (xof + mwid) / xstep; k++) {
-            mtx[k] = (mtx[k] || 0) + 1;
-          }
-        }
+    for (j = 0; j < yr(i) * depth; j += 30) {
+      if (!peak) continue;
+      var xof = i + 2 * (Math.random() - 0.5) * 500, yof = Math.min(760, j + 500);
+      if (chadd({ tag: "hill", x: xof, y: yof })) {
+        for (var k = Math.floor((xof - mwid) / xstep); k < (xof + mwid) / xstep; k++) mtx[k] = (mtx[k] || 0) + 1;
       }
-    }
-    if (P.dist && Math.abs(i) % 1000 < Math.max(1, xstep - 1)) {
-      chadd({ tag: "distmount", x: i, y: 280 - Math.random() * 50 });
     }
   }
   var pflat = 0.01 * (P.flat / 100);
-  for (var i = xmin; i < xmax; i += xstep) {
-    if (mtx[Math.floor(i / xstep)] == 0 && Math.random() < pflat) {
-      for (var j = 0; j < 4 * Math.random(); j++) {
-        chadd({ tag: "flatmount", x: i + 2 * (Math.random() - 0.5) * 700, y: 700 - j * 50 });
-      }
+  for (i = xmin; i < xmax; i += xstep) {
+    var open = mtx[Math.floor(i / xstep)] == 0;
+    if (open && Math.random() < pflat) {
+      for (j = 0; j < 3 * Math.random(); j++) chadd({ tag: "flatmount", x: i + 2 * (Math.random() - 0.5) * 700, y: 700 - j * 45 });
     }
+    if (open && Math.random() < 0.012) chadd({ tag: "rock", x: i, y: 610 + Math.random() * 110 }, 140);
   }
   var pboat = 0.2 * (P.boats / 100);
-  for (var i = xmin; i < xmax; i += xstep) {
-    if (Math.random() < pboat) {
-      chadd({ tag: "boat", x: i, y: 300 + Math.random() * 390 }, 400);
-    }
+  for (i = xmin; i < xmax; i += xstep) {
+    if (Math.random() < pboat) chadd({ tag: "boat", x: i, y: 480 + Math.random() * 210 }, 400);
   }
-  // snapshot of the settings that affect item generation
-  for (var q = 0; q < reg.length; q++) {
-    reg[q].veg = P.veg; reg[q].water = P.water; reg[q].hmul = P.height / 100;
-  }
-  return reg;
-}
+});
 
 var VISCACHE = {};
 function visible(c) {
@@ -4301,10 +4318,23 @@ function captureItem(fn, y) {
 function generateEntry(r, idx) {
   var out = [];
   var it;
-  if (r.tag == "mount") {
+  if (r.tag == "farmount") {
+    // a high range, bare of detail at this distance
     it = captureItem(function() {
       return Mount.mountain(r.x, r.y, idx * 2 * Math.random(), {
-        hei: (100 + Math.random() * 400) * r.hmul,
+        hei: (300 + Math.random() * 300) * r.hmul, wid: 520 + Math.random() * 380, veg: false
+      });
+    }, r.y);
+    if (it) out.push(it);
+  } else if (r.tag == "rock") {
+    it = captureItem(function() {
+      return Mount.rock(r.x, r.y, idx * 2 * Math.random(), { hei: 30 + Math.random() * 50, wid: 60 + Math.random() * 90 });
+    }, r.y);
+    if (it) out.push(it);
+  } else if (r.tag == "hill") {
+    it = captureItem(function() {
+      return Mount.mountain(r.x, r.y, idx * 2 * Math.random(), {
+        hei: (60 + Math.random() * 190) * r.hmul, wid: 320 + Math.random() * 300,
         veg: r.veg
       });
     }, r.y);
@@ -4401,36 +4431,49 @@ function insertByY(list, it) {
   // ----- state -----
   var S = {
     scale: 1, k: 1, stageW: 0, stageH: 0,
-    items: [], queue: [], plannedEnd: -4 * CW,
-    startX: 0, committed: 0, drawnRight: 0, nextTile: 0,
-    job: null, tiles: [], pool: [],
-    speed: 45, paused: false, eff: 0, rate: 0, hidden: false,
-    ready: false, entryIdx: 0
+    speed: 45, paused: false, eff: 0, rate: 0, hidden: false, ready: false
   };
-  var ink = document.createElement("canvas");
-  var ictx = ink.getContext("2d");
+  // A layer is a complete scroll of its own: plan, generated items, tiles and a
+  // compositor animation. p is how fast it moves relative to the near layer.
+  function makeLayer(id, plan, p, wash) {
+    var strip = document.getElementById(id), ink = document.createElement("canvas");
+    return {
+      strip: strip, inner: strip.firstElementChild, plan: plan, p: p, wash: wash, mtx: {}, rs: 1234,
+      items: [], queue: [], plannedEnd: -4 * CW, startX: 0, committed: 0, drawnRight: 0, nextTile: 0,
+      job: null, tiles: [], pool: [], entryIdx: 0, anim: null, pos0: 0, ink: ink, ictx: ink.getContext("2d")
+    };
+  }
+  var FAR = makeLayer("stripFar", planFar, 0.45, 0.42), NEAR = makeLayer("strip", planNear, 1, 0);
+  var LAYERS = [FAR, NEAR];
+  document.getElementById("paper").style.backgroundImage = stage.style.backgroundImage;
 
-  // ----- scrolling: a compositor-driven animation so main-thread work never stalls it -----
-  var anim = strip.animate(
-    [{ transform: "translate3d(0,0,0)" }, { transform: "translate3d(" + (-DIST) + "px,0,0)" }],
-    { duration: DIST / BASE, easing: "linear", fill: "forwards" }
-  );
-  anim.playbackRate = 0;
-
-  function posPx() { return (anim.currentTime || 0) * BASE; }
-  function viewLeft() { return posPx() / S.scale; }
-  function viewRight() { return (posPx() + S.stageW) / S.scale; }
+  // ----- scrolling: compositor-driven animations so main-thread work never stalls them -----
+  function posPx(L) { return L.pos0 + (L.anim ? (L.anim.currentTime || 0) : 0) * BASE * L.p; }
+  function viewLeft(L) { return posPx(L) / S.scale; }
+  function viewRight(L) { return (posPx(L) + S.stageW) / S.scale; }
+  // (re)start a layer's animation from a given position, at its own speed
+  function rebase(L, px) {
+    if (L.anim) L.anim.cancel();
+    L.pos0 = px;
+    L.anim = L.strip.animate(
+      [{ transform: "translate3d(" + (-px) + "px,0,0)" }, { transform: "translate3d(" + (-px - DIST * L.p) + "px,0,0)" }],
+      { duration: DIST / BASE, easing: "linear", fill: "both" }
+    );
+    L.anim.playbackRate = S.rate;
+    if (S.hidden) L.anim.pause();
+  }
   function setRate(r) {
     if (Math.abs(r - S.rate) < 0.003 && !(r === 0 && S.rate !== 0)) return;
     S.rate = r;
-    if (anim.updatePlaybackRate) anim.updatePlaybackRate(r); else anim.playbackRate = r;
+    LAYERS.forEach(function(L) { if (L.anim.updatePlaybackRate) L.anim.updatePlaybackRate(r); else L.anim.playbackRate = r; });
   }
 
   var coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
   // always fill the full screen height
   function computeScale(W, H) { return H / HU; }
   function placeStrip() {
-    strip.style.top = Math.max(0, Math.round((S.stageH - HU * S.scale) / 2)) + "px";
+    var top = Math.max(0, Math.round((S.stageH - HU * S.scale) / 2)) + "px";
+    LAYERS.forEach(function(L) { L.strip.style.top = top; });
   }
   function measure(force) {
     var W = stage.clientWidth, H = stage.clientHeight;
@@ -4439,68 +4482,78 @@ function insertByY(list, it) {
     if (!force && S.stageW && W === S.stageW && Math.abs(H - S.stageH) / S.stageH < 0.15) {
       S.stageH = H; placeStrip(); return;
     }
-    var oldScale = S.scale, units = S.stageW ? viewLeft() : 0;
+    var oldScale = S.scale, first = !S.stageW;
+    var units = LAYERS.map(function(L) { return first ? 0 : posPx(L) / oldScale; });
     S.stageW = W; S.stageH = H;
     S.scale = computeScale(W, H);
     var tileW = T + 2 * OVER;
     var dpr = Math.min(window.devicePixelRatio || 1, coarse ? 1.75 : 2);
-    var maxPx = coarse ? 2.2e6 : 3.4e6;
+    var maxPx = coarse ? 1.8e6 : 3.0e6;
     var px = tileW * S.scale * dpr * HU * S.scale * dpr;
     if (px > maxPx) dpr *= Math.sqrt(maxPx / px);
     S.k = S.scale * dpr;
-    inner.style.transform = "scale(" + S.scale + ")";
     placeStrip();
-    if (oldScale !== S.scale && units) anim.currentTime = units * S.scale / BASE;
-    if (S.job) abortJob();
+    LAYERS.forEach(function(L, n) {
+      L.inner.style.transform = "scale(" + S.scale + ")";
+      if (first || oldScale !== S.scale) rebase(L, units[n] * S.scale);
+      abortJob(L);
+    });
+  }
+  // change how far apart the two layers feel, without the far one jumping
+  function setParallax(v) {
+    var p = 1 - v / 100;
+    if (!FAR.anim) { FAR.p = p; return; }
+    var px = posPx(FAR);
+    FAR.p = p; rebase(FAR, px);
   }
 
+  // each layer draws from its own random stream, so a seed always paints the same scroll
+  function enter(L) { Prng.s = L.rs; PLAN.planmtx = L.mtx; }
+  function leave(L) { L.rs = Prng.s; }
+
   // ----- generation -----
-  function genFrontier() {
-    return S.queue.length ? S.queue[0].cs : S.plannedEnd;
+  function genFrontier(L) { return L.queue.length ? L.queue[0].cs : L.plannedEnd; }
+  function planNext(L) {
+    var cs = L.plannedEnd, plan = L.plan(cs, cs + CW, TERRAIN);
+    for (var i = 0; i < plan.length; i++) L.queue.push({ cs: cs, r: plan[i] });
+    L.plannedEnd += CW;
   }
-  function planNext() {
-    var cs = S.plannedEnd, plan = planChunk(cs, cs + CW, TERRAIN);
-    for (var i = 0; i < plan.length; i++) S.queue.push({ cs: cs, r: plan[i] });
-    S.plannedEnd += CW;
-  }
-  function genNext() {
-    var e = S.queue.shift();
+  function genNext(L) {
+    var e = L.queue.shift();
     var made;
-    try { made = generateEntry(e.r, S.entryIdx++); } catch (err) { made = []; }
+    try { made = generateEntry(e.r, L.entryIdx++); } catch (err) { made = []; }
     for (var i = 0; i < made.length; i++) {
       var it = made[i];
       // never add anything that would cut into paint that has already been laid down
-      if (S.committed > S.startX && it.minX < S.committed) continue;
-      insertByY(S.items, it);
+      if (L.committed > L.startX && it.minX < L.committed) continue;
+      insertByY(L.items, it);
     }
   }
 
   // ----- rasterising tiles (time-sliced) -----
-  function tileRenderable(idx) {
-    return genFrontier() >= (idx + 1) * T + OVER + MARGIN;
-  }
-  function startJob() {
-    var idx = S.nextTile, x0 = idx * T - OVER, x1 = idx * T + T + OVER;
+  function tileRenderable(L, idx) { return genFrontier(L) >= (idx + 1) * T + OVER + MARGIN; }
+  function startJob(L) {
+    var idx = L.nextTile, x0 = idx * T - OVER, x1 = idx * T + T + OVER;
     var list = [];
-    for (var i = 0; i < S.items.length; i++) {
-      var it = S.items[i];
+    for (var i = 0; i < L.items.length; i++) {
+      var it = L.items[i];
       if (it.minX < x1 && it.maxX > x0) list.push(it);
     }
-    var w = Math.ceil((x1 - x0) * S.k), h = Math.ceil(HU * S.k);
+    var w = Math.ceil((x1 - x0) * S.k), h = Math.ceil(HU * S.k), ink = L.ink, ictx = L.ictx;
     if (ink.width !== w || ink.height !== h) { ink.width = w; ink.height = h; }
     else { ictx.setTransform(1, 0, 0, 1, 0, 0); ictx.clearRect(0, 0, w, h); }
     ictx.setTransform(S.k, 0, 0, S.k, -x0 * S.k, 0);
     ictx.lineJoin = "miter";
-    S.job = { idx: idx, x0: x0, x1: x1, list: list, i: 0, j: 0, k: S.k, w: w, h: h, prevCommitted: S.committed };
-    S.committed = x1;
+    L.job = { idx: idx, x0: x0, x1: x1, list: list, i: 0, j: 0, k: S.k, w: w, h: h, prevCommitted: L.committed };
+    L.committed = x1;
   }
-  function abortJob() {
-    if (!S.job) return;
-    S.committed = S.job.prevCommitted;
-    S.job = null;
+  function abortJob(L) {
+    if (!L.job) return;
+    L.committed = L.job.prevCommitted;
+    L.job = null;
   }
-  function sliceJob(deadline) {
-    var J = S.job, x0 = J.x0, x1 = J.x1, n = 0;
+  function sliceJob(L, deadline) {
+    var J = L.job, x0 = J.x0, x1 = J.x1, n = 0, ictx = L.ictx;
     while (J.i < J.list.length) {
       var cmds = J.list[J.i].cmds;
       while (J.j < cmds.length) {
@@ -4510,59 +4563,72 @@ function insertByY(list, it) {
       }
       J.i++; J.j = 0;
     }
-    finishJob();
+    finishJob(L);
     return true;
   }
-  function finishJob() {
-    var J = S.job;
-    S.job = null;
-    var cv = S.pool.pop() || document.createElement("canvas");
+  function finishJob(L) {
+    var J = L.job;
+    L.job = null;
+    // the tile is ink on clear film: the paper is laid over both layers by the page
+    var cv = L.pool.pop() || document.createElement("canvas");
     cv.width = J.w; cv.height = J.h;
     var c = cv.getContext("2d");
-    c.setTransform(J.k, 0, 0, J.k, -J.x0 * J.k, 0);
-    c.fillStyle = c.createPattern(paper, "repeat");
-    c.fillRect(J.x0, 0, J.x1 - J.x0, HU);
-    c.setTransform(1, 0, 0, 1, 0, 0);
-    c.globalCompositeOperation = "multiply";
-    c.drawImage(ink, 0, 0);
-    c.globalCompositeOperation = "source-over";
+    c.drawImage(L.ink, 0, 0);
+    if (L.wash) {
+      // distance thins the ink
+      c.globalCompositeOperation = "source-atop";
+      c.fillStyle = "rgba(255,255,255," + L.wash + ")";
+      c.fillRect(0, 0, J.w, J.h);
+      c.globalCompositeOperation = "source-over";
+    }
     cv.className = "tile";
     cv.style.left = J.x0 + "px";
     cv.style.width = (J.x1 - J.x0) + "px";
     cv.style.height = HU + "px";
-    inner.appendChild(cv);
-    S.tiles.push({ x0: J.x0, x1: J.x1, el: cv });
-    S.nextTile = J.idx + 1;
-    S.drawnRight = J.x1 - OVER;
-    var keepFrom = S.nextTile * T - OVER;
-    S.items = S.items.filter(function(it) { return it.maxX >= keepFrom; });
+    L.inner.appendChild(cv);
+    L.tiles.push({ x0: J.x0, x1: J.x1, el: cv });
+    L.nextTile = J.idx + 1;
+    L.drawnRight = J.x1 - OVER;
+    var keepFrom = L.nextTile * T - OVER;
+    L.items = L.items.filter(function(it) { return it.maxX >= keepFrom; });
   }
   function recycleTiles() {
-    var vl = viewLeft();
-    while (S.tiles.length && S.tiles[0].x1 < vl - 64) {
-      var t = S.tiles.shift();
-      t.el.remove();
-      if (S.pool.length < 2) S.pool.push(t.el);
-      else { t.el.width = 0; t.el.height = 0; } // release GPU memory promptly (iOS)
-    }
+    LAYERS.forEach(function(L) {
+      var vl = viewLeft(L);
+      while (L.tiles.length && L.tiles[0].x1 < vl - 64) {
+        var t = L.tiles.shift();
+        t.el.remove();
+        if (L.pool.length < 2) L.pool.push(t.el);
+        else { t.el.width = 0; t.el.height = 0; } // release GPU memory promptly (iOS)
+      }
+    });
   }
 
   // ----- scheduler -----
   function speedUnits() { return S.speed / S.scale; }
-  function rasterTarget() { return viewRight() + T + Math.max(T, speedUnits() * 5); }
+  function rasterTarget(L) { return viewRight(L) + T + Math.max(T, speedUnits() * L.p * 5); }
+  // how much painted scroll a layer has in hand, measured in the near layer's distance
+  function inHand(L) { return (L.drawnRight - viewRight(L)) / Math.max(0.2, L.p); }
+  function step(L, deadline) {
+    if (L.job) { sliceJob(L, deadline); return true; }
+    var nx0 = L.nextTile * T, target = rasterTarget(L);
+    if (nx0 < target && tileRenderable(L, L.nextTile)) { startJob(L); return true; }
+    var needGen = Math.max(target, nx0 + T) + MARGIN + CW;
+    if (genFrontier(L) < needGen) {
+      enter(L);
+      if (!L.queue.length) planNext(L); else genNext(L);
+      leave(L);
+      return true;
+    }
+    return false;
+  }
   function work() {
     var deadline = performance.now() + 9;
     var did = false;
     while (performance.now() < deadline) {
-      if (S.job) { sliceJob(deadline); did = true; continue; }
-      var nx0 = S.nextTile * T;
-      if (nx0 < rasterTarget() && tileRenderable(S.nextTile)) { startJob(); did = true; continue; }
-      var needGen = Math.max(rasterTarget(), nx0 + T) + MARGIN + CW;
-      if (genFrontier() < needGen) {
-        if (!S.queue.length) planNext(); else genNext();
-        did = true;
-        continue;
-      }
+      // whichever layer is shorter of paint goes first
+      var a = inHand(FAR) < inHand(NEAR) ? FAR : NEAR, b = a === FAR ? NEAR : FAR;
+      if (step(a, deadline) || step(b, deadline)) { did = true; continue; }
       break;
     }
     return did;
@@ -4571,7 +4637,7 @@ function insertByY(list, it) {
   var pumping = false;
   mc.port1.onmessage = function() {
     var busy = work();
-    if (!S.ready && S.drawnRight >= viewRight()) {
+    if (!S.ready && FAR.drawnRight >= viewRight(FAR) && NEAR.drawnRight >= viewRight(NEAR)) {
       S.ready = true;
       loading.classList.add("done");
     }
@@ -4582,7 +4648,7 @@ function insertByY(list, it) {
   // back-pressure: ease the scroll down if the painted buffer ever runs short
   function governor() {
     recycleTiles();
-    var ahead = S.drawnRight - viewRight();
+    var ahead = Math.min(inHand(FAR), inHand(NEAR));
     var need = Math.max(160, speedUnits() * 3);
     var f = S.ready ? Math.max(0, Math.min(1, (ahead - 24) / need)) : 0;
     S.eff = f < S.eff ? f : S.eff + (f - S.eff) * 0.12;
@@ -4594,18 +4660,26 @@ function insertByY(list, it) {
 
   // ----- terrain / seed changes: repaint everything beyond the frontier -----
   function replan() {
-    abortJob();
-    S.queue.length = 0;
-    S.items = S.items.filter(function(it) { return it.minX < S.committed; });
-    var cs = Math.floor(S.committed / CW) * CW;
-    S.plannedEnd = cs;
-    var k0 = Math.floor((cs - 300) / 5);
-    for (var key in PLAN.planmtx) if (+key >= k0) delete PLAN.planmtx[key];
+    LAYERS.forEach(function(L) {
+      abortJob(L);
+      L.queue.length = 0;
+      L.items = L.items.filter(function(it) { return it.minX < L.committed; });
+      var cs = Math.floor(L.committed / CW) * CW;
+      L.plannedEnd = cs;
+      var k0 = Math.floor((cs - 300) / 5);
+      for (var key in L.mtx) if (+key >= k0) delete L.mtx[key];
+    });
     kick();
   }
-  function setSeed(seed) {
+  function seedLayers(seed) {
     Math.seed(String(seed));
-    Noise.reset();
+    Noise.reset(); Noise.noise(0);          // build the noise table now, from this seed
+    NEAR.rs = Prng.s;
+    Math.seed(String(seed) + "/far");
+    FAR.rs = Prng.s;
+  }
+  function setSeed(seed) {
+    seedLayers(seed);
     replan();
   }
 
@@ -4649,6 +4723,7 @@ function insertByY(list, it) {
   bindRange("flat", "flatOut", pct, function(v) { TERRAIN.flat = v; });
   bindRange("boats", "boatsOut", pct, function(v) { TERRAIN.boats = v; });
   ["density", "height", "depth", "flat", "boats"].forEach(function(id) { $(id).addEventListener("change", terrainChanged); });
+  bindRange("parallax", "parallaxOut", pct, setParallax);
   [["veg", "veg"], ["dist", "dist"], ["water", "water"]].forEach(function(p) {
     var el = $(p[0]);
     el.addEventListener("change", function() { TERRAIN[p[1]] = el.checked; terrainChanged(); });
@@ -4752,7 +4827,8 @@ function insertByY(list, it) {
 
   document.addEventListener("visibilitychange", function() {
     S.hidden = document.hidden;
-    if (S.hidden) { anim.pause(); } else { anim.play(); S.eff = Math.min(S.eff, 0.3); }
+    LAYERS.forEach(function(L) { if (S.hidden) L.anim.pause(); else L.anim.play(); });
+    if (!S.hidden) S.eff = Math.min(S.eff, 0.3);
     governor();
   });
   var resizeTimer = 0;
@@ -4774,8 +4850,7 @@ function insertByY(list, it) {
   // ----- boot -----
   var seed0 = randomSeed();
   seedEl.value = seed0;
-  Math.seed(seed0);
-  Noise.reset();
+  seedLayers(seed0);
   measure(true);
   applyTone();
   setInterval(governor, 100);
