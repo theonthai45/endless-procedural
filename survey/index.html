@@ -86,6 +86,14 @@ body[data-map="blueprint"] #clouds.off, body[data-map="nocturne"] #clouds.off { 
   height: 6px; width: 160px; border: 1px solid var(--hud-ink);
   background: linear-gradient(90deg, var(--hud-ink) 0 25%, transparent 25% 50%, var(--hud-ink) 50% 75%, transparent 75%);
 }
+#keyBtn { pointer-events: auto; margin-left: 6px; font: inherit; font-size: 11.5px; padding: 1px 9px 2px; cursor: pointer; color: var(--hud-ink); background: transparent; border: 1px solid var(--hud-edge); }
+#keyBtn[aria-expanded="true"] { background: var(--hud-ink); color: var(--hud-bg); }
+#keyBtn:focus-visible { outline: 2px solid var(--hud-ink); outline-offset: 2px; }
+#keyCard { left: calc(18px + env(safe-area-inset-left, 0px)); bottom: calc(92px + env(safe-area-inset-bottom, 0px)); width: min(300px, calc(100vw - 36px)); border: 1px solid var(--hud-edge); outline: 1px solid var(--hud-edge); outline-offset: 3px; box-shadow: 0 10px 30px rgba(20,15,8,.25); }
+#keyCard[hidden] { display: none; }
+#key { display: block; width: 100%; }
+@media (pointer: coarse) { #keyBtn { padding: 5px 12px 6px; } }
+body.bare #keyBtn { pointer-events: none; }
 body.bare .hud, body.bare #menu { opacity: 0; }
 body.bare #menu { pointer-events: none; }
 body.bare #panel { display: none; }
@@ -180,6 +188,7 @@ kbd { font-family: inherit; font-size: 11.5px; border: 1px solid var(--card-edge
   #cartouche { top: calc(26px + env(safe-area-inset-top, 0px)); left: calc(10px + env(safe-area-inset-left, 0px)); }
   #hudRegion { font-size: 17px; }
   #legend { left: calc(10px + env(safe-area-inset-left, 0px)); bottom: calc(30px + env(safe-area-inset-bottom, 0px)); }
+  #keyCard { left: calc(10px + env(safe-area-inset-left, 0px)); }
   #menu { right: calc(10px + env(safe-area-inset-right, 0px)); }
 }
 @media (max-height: 480px) and (orientation: landscape) {
@@ -207,7 +216,8 @@ body.bare .home-link{opacity:0;pointer-events:none}
 </div>
 
 <div id="cartouche" class="hud" aria-live="polite"><span id="hudRegion">&nbsp;</span><span id="hudMeta"><span id="hudSheet">Sheet 1</span>, scale 1:50,000</span></div>
-<div id="legend" class="hud"><div class="bar"><div id="scaleBar"></div><span>1 km</span></div><span id="hudCoord">&nbsp;</span></div>
+<div id="legend" class="hud"><div class="bar"><div id="scaleBar"></div><span>1 km</span><button id="keyBtn" aria-controls="keyCard" aria-expanded="false">Key</button></div><span id="hudCoord">&nbsp;</span></div>
+<div id="keyCard" class="hud" hidden><canvas id="key" role="img" aria-label="Key to the map symbols: roads, lanes, footpaths, rivers, bridges, contours, woodland, fields, marsh, scree, towns, villages, summits, lighthouses, water and soundings"></canvas></div>
 <div id="loading">Surveying the first sheet…</div>
 
 <button id="menu" aria-controls="panel" aria-expanded="false" title="Map controls" aria-label="Map controls">
@@ -264,7 +274,7 @@ body.bare .home-link{opacity:0;pointer-events:none}
       <label class="check"><input type="checkbox" id="roads" checked> Roads and paths</label>
       <label class="check"><input type="checkbox" id="towns" checked> Towns and names</label>
       <label class="check"><input type="checkbox" id="peaks" checked> Heights</label>
-      <label class="check"><input type="checkbox" id="cover" checked> Woods and marsh</label>
+      <label class="check"><input type="checkbox" id="cover" checked> Land cover</label>
       <label class="check"><input type="checkbox" id="grainOn" checked> Paper grain</label>
       <label class="check"><input type="checkbox" id="grid" checked> Grid</label>
       <label class="check"><input type="checkbox" id="cloudsOn" checked> Cloud shadows</label>

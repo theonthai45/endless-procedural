@@ -68,12 +68,28 @@
   /* ---------- controls ---------- */
   E.bindRange("speed", "speedOut", function(v) { return v + " px/s"; }, function(v) { S.speed = v; });
 
+  // the key in the controls card follows the edition
+  var keyCv = $("key");
+  function drawKey() {
+    if (keyCard.hidden) return;
+    var w = keyCv.clientWidth || 278, dpr = Math.min(window.devicePixelRatio || 1, 2), probe = document.createElement("canvas").getContext("2d");
+    var h = core.drawKey(probe, STYLE, w);
+    keyCv.width = Math.round(w * dpr); keyCv.height = Math.round(h * dpr); keyCv.style.height = h + "px";
+    var g = keyCv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    core.drawKey(g, STYLE, w);
+  }
+  var keyBtn = $("keyBtn"), keyCard = $("keyCard");
+  keyBtn.addEventListener("click", function() {
+    keyCard.hidden = !keyCard.hidden;
+    keyBtn.setAttribute("aria-expanded", keyCard.hidden ? "false" : "true");
+    if (!keyCard.hidden) drawKey();
+  });
   function setTheme(name) {
     STYLE.theme = name;
     document.body.dataset.map = name;
     var r = document.querySelector("input[name=theme][value=" + name + "]"); if (r) r.checked = true;
     var meta = document.querySelector("meta[name=theme-color]"); if (meta) meta.content = core.paper(name);
-    S.restyle();
+    S.restyle(); drawKey();
   }
   document.querySelectorAll("input[name=theme]").forEach(function(r) { r.addEventListener("change", function() { if (r.checked) setTheme(r.value); }); });
   document.querySelectorAll("input[name=interval]").forEach(function(r) { r.addEventListener("change", function() { if (r.checked) { STYLE.interval = +r.value; S.restyle(); } }); });
@@ -166,6 +182,6 @@
       STYLE.fontSerifSC = '"IM Fell English SC", Georgia, serif';
       STYLE.fontSans = '"Libre Franklin", "Helvetica Neue", Arial, sans-serif';
     }
-    S.start();
+    S.start(); drawKey();
   });
 })();

@@ -1,16 +1,30 @@
 /* ===== Endless Street: ground, gaps, street furniture and the tile renderer ===== */
 var TREES = { singapore: "#3f7a3c", paris: "#6e8f3f", brooklyn: "#557f3a", london: "#5c8046", lisbon: "#6a8a3a" };
-function drawTree(ctx, r, x, base, size, leaf) {
-  R(ctx, x - 3, base - size * 1.1, 6, size * 1.1, L("#5a4332"));
-  var tones = [L(leaf, 0.78), L(leaf), L(leaf, 1.12)];
-  for (var t = 0; t < 3; t++) {
-    ctx.fillStyle = tones[t];
-    for (var c = 0; c < 6; c++) {
-      ctx.beginPath();
-      ctx.arc(x + rr(r, -size * 0.7, size * 0.7) * (1 - t * 0.2), base - size * 1.25 + rr(r, -size * 0.5, size * 0.35) - t * 4, size * rr(r, 0.32, 0.5), 0, 6.3);
-      ctx.fill();
+// Trees are not painted into the street: each one is handed to the page as its own
+// small sprite, so its crown can move in the wind.
+function drawTree(ctx, r, x, base, size, leaf, front) {
+  var seed = (r() * 1e9) | 0;
+  for (var q = 0; q < 35; q++) r();           // keep the caller's random sequence where it was
+  emit("tree", x, base, { size: size, leaf: leaf, seed: seed, front: !!front });
+}
+function treeSprite(o) {
+  var size = o.size;
+  return {
+    box: { x0: -size * 1.25, x1: size * 1.25, h: size * 2.35 },
+    pivot: size * 1.1,
+    trunk: function(g) { R(g, -3, -size * 1.1, 6, size * 1.1, L("#5a4332")); R(g, -1, -size * 1.1, 2, size * 1.1, L("#6b5140")); },
+    crown: function(g) {
+      var r = mulberry32(o.seed), tones = [L(o.leaf, 0.78), L(o.leaf), L(o.leaf, 1.12)];
+      for (var t = 0; t < 3; t++) {
+        g.fillStyle = tones[t];
+        for (var c = 0; c < 6; c++) {
+          g.beginPath();
+          g.arc(rr(r, -size * 0.7, size * 0.7) * (1 - t * 0.2), -size * 1.25 + rr(r, -size * 0.5, size * 0.35) - t * 4, size * rr(r, 0.32, 0.5), 0, 6.3);
+          g.fill();
+        }
+      }
     }
-  }
+  };
 }
 function drawPark(ctx, b) {
   var r = mulberry32(b.seed), x = b.x, w = b.w;
@@ -51,7 +65,7 @@ function drawTrees(ctx, x0, x1) {
     if (!d || !TREES[d.city] || h > 0.6) continue;
     var r = mulberry32((k * 7331) ^ PLAN.seed);
     var leaf = TREES[d.city];
-    drawTree(ctx, r, tx, KERB - 2, d.city === "singapore" ? 70 : 58, leaf);
+    drawTree(ctx, r, tx, KERB - 2, d.city === "singapore" ? 70 : 58, leaf, true);
     R(ctx, tx - 12, KERB - 4, 24, 4, L("#6b5a48"));
   }
 }
@@ -297,6 +311,25 @@ function windowLit(w, n, hour) {
   return true;
 }
 
+// a little modelling for each front: shade where it meets its neighbour, a darker foot,
+// and the shadow it drops on the pavement
+function depth(a, n, it) {
+  [a, n].forEach(function(c) {
+    var g = c.createLinearGradient(it.x, 0, it.x + 10, 0);
+    g.addColorStop(0, "rgba(0,0,0,.2)"); g.addColorStop(1, "rgba(0,0,0,0)");
+    c.save(); c.globalCompositeOperation = "source-atop";
+    c.fillStyle = g; c.fillRect(it.x, VY, 10, G - VY);
+    c.fillStyle = "rgba(0,0,0,.16)"; c.fillRect(it.x + it.w - 1.2, VY, 1.2, G - VY);
+    g = c.createLinearGradient(0, G - 9, 0, G);
+    g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.2)");
+    c.fillStyle = g; c.fillRect(it.x, G - 9, it.w, 9);
+    c.restore();
+    g = c.createLinearGradient(0, G, 0, G + 12);
+    g.addColorStop(0, "rgba(20,16,30,.2)"); g.addColorStop(1, "rgba(20,16,30,0)");
+    c.fillStyle = g; c.fillRect(it.x, G, it.w, 12);
+  });
+}
+
 /* ---------- tile renderer (a generator, so the work can be sliced) ---------- */
 function* renderTile(job, light) {
   var x0 = job.x0, x1 = job.x1, k = job.k, W = Math.ceil((x1 - x0) * k), VH = WH - VY, UK = k * 0.5;
@@ -317,6 +350,7 @@ function* renderTile(job, light) {
     DRAW[items[j].type](ctx, items[j]);
     WINS = null;
     ctx.restore();
+    if (CITIES[items[j].type]) depth(a, n, items[j]);
     yield;
   }
   // after dark: pools of lamplight on the pavement, and the gutter falls into shadow

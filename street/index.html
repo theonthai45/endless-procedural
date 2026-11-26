@@ -46,7 +46,22 @@ body {
 /* the night copy of the street sits over the day copy and fades in with the dark */
 #nightMain, #nightFore { position: absolute; left: 0; top: 0; opacity: 0; transition: opacity 1.2s linear; }
 #inner, #fore { filter: var(--tint, none); }
-.ped, .critter { filter: var(--life, none); }
+.ped, .critter, .tree { filter: var(--life, none); }
+/* a soft shadow where each figure and vehicle meets the ground */
+.ped::after { content: ""; position: absolute; z-index: -1; left: calc(var(--ox, 50%) - var(--sw, 12px)); bottom: -3px; width: calc(var(--sw, 12px) * 2); height: 7px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(10,8,20,.34), rgba(10,8,20,0)); }
+.ped.boat::after { display: none; }
+.tree { position: absolute; pointer-events: none; }
+.tree canvas { position: absolute; left: 0; top: 0; display: block; }
+.tree::after { content: ""; position: absolute; z-index: -1; left: 22%; right: 22%; bottom: -4px; height: 9px; border-radius: 50%; background: radial-gradient(closest-side, rgba(10,8,20,.3), rgba(10,8,20,0)); }
+.sway { position: absolute; inset: 0; animation: sway 4.5s ease-in-out infinite alternate; will-change: transform; }
+@keyframes sway {
+  from { transform: rotate(calc(var(--wind, 1.1deg) * -1)) skewX(calc(var(--wind, 1.1deg) * .7)); }
+  to { transform: rotate(var(--wind, 1.1deg)) skewX(calc(var(--wind, 1.1deg) * -.7)); }
+}
+body[data-wx="rain"] { --wind: 2.6deg; }
+body[data-wx="snow"] { --wind: .7deg; }
+body[data-wx="fog"] { --wind: .35deg; }
 .beam { position: absolute; width: 150px; height: 34px; pointer-events: none; opacity: var(--night, 0);
   background: linear-gradient(90deg, rgba(255,244,200,.95), rgba(255,244,200,0)); clip-path: polygon(0 42%, 100% 0, 100% 100%, 0 58%); }
 .beam.big { width: 200px; }
@@ -57,7 +72,7 @@ body[data-wx="fog"] #fog { opacity: .9; }
 body[data-wx="rain"] #fog { opacity: .28; }
 body[data-wx="snow"] #fog { opacity: .38; }
 #wet { position: absolute; left: 0; right: 0; bottom: 0; pointer-events: none; opacity: 0; transition: opacity 5s ease; mix-blend-mode: screen;
-  background: linear-gradient(rgba(150,180,215,.12), rgba(170,200,235,.34)); }
+  background: linear-gradient(rgba(150,180,215,.05), rgba(170,200,235,.17)); }
 body[data-wx="rain"] #wet { opacity: 1; }
 body[data-wx="snow"] #wet { opacity: 1; mix-blend-mode: normal; background: linear-gradient(rgba(240,244,250,.3), rgba(240,244,250,.42)); filter: brightness(calc(1 - var(--night, 0) * .6)); }
 body { --smk: 236,232,226; }
@@ -107,7 +122,7 @@ body[data-tod="dusk"] .flock svg { stroke: #1a1630; }
 @keyframes flap { from { transform: scaleY(1); } to { transform: scaleY(-.45); } }
 body.nowild #birds, body.nowild .critter { display: none; }
 body.nodetail .detail { display: none; }
-@media (prefers-reduced-motion: reduce) { .smoke b, .flock svg, .lantern, .tail, .pigeon { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .smoke b, .flock svg, .lantern, .tail, .pigeon, .sway { animation: none; } }
 .tile { position: absolute; top: 0; display: block; transition: opacity .7s ease; }
 @media (prefers-reduced-motion: reduce) { #cloudLayer { animation: none; } #wx { display: none; } }
 
@@ -125,7 +140,8 @@ body.nodetail .detail { display: none; }
 }
 #sign.swap { opacity: 0; transform: translateY(-6px); }
 #signStreet { display: block; font-family: "Young Serif", Georgia, serif; font-size: 20px; line-height: 1.2; }
-#signCity { display: block; font-size: 12px; opacity: .85; margin-top: 1px; font-weight: 500; }
+#signCity { display: inline-block; font-size: 12px; opacity: .85; margin-top: 1px; font-weight: 500; }
+#signTime { float: right; font-size: 12px; opacity: .8; margin-top: 1px; margin-left: 14px; font-variant-numeric: tabular-nums; }
 #sign[data-city="singapore"] { background: #1b4f9c; color: #fff; }
 #sign[data-city="paris"] { background: #23408f; color: #fff; border-radius: 3px; box-shadow: inset 0 0 0 3px #2f7a46, inset 0 0 0 5px #fff, 0 6px 18px rgba(0,0,0,.25); }
 #sign[data-city="amsterdam"] { background: #a3262a; color: #fff; }
@@ -263,7 +279,7 @@ body.bare .home-link{opacity:0;pointer-events:none}
   <canvas id="wx"></canvas>
 </div>
 
-<div id="sign" data-city="singapore" aria-live="polite"><span id="signStreet">&nbsp;</span><span id="signCity">&nbsp;</span></div>
+<div id="sign" data-city="singapore" aria-live="polite"><span id="signStreet">&nbsp;</span><span id="signCity">&nbsp;</span><span id="signTime"></span></div>
 <div id="loading">Laying out the first block…</div>
 
 <button id="menu" aria-controls="panel" aria-expanded="false">
